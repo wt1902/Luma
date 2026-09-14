@@ -339,6 +339,7 @@ private struct ReplyThreadMessageRow: View {
         case .sent: state = "Отправлено"
         case .delivered: state = "Доставлено"
         case .failed: state = "Не отправлено"
+        case .read: state = "Прочитано"
         }
         let value = Calendar.current.isDateInToday(message.timestamp)
             ? message.timestamp.formatted(date: .omitted, time: .shortened)

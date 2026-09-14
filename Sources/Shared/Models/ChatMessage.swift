@@ -13,6 +13,7 @@ final class ChatMessage {
         case sent
         case delivered
         case failed
+        case read
     }
 
     enum Security: String, Codable {
