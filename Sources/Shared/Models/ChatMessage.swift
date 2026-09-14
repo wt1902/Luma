@@ -14,6 +14,27 @@ final class ChatMessage {
         case delivered
         case failed
         case read
+
+        /// Monotonic promotion used when the same outgoing message is replayed
+        /// from MAM/MUC-MAM or Carbons: a copy that was already delivered or
+        /// read locally must never be downgraded by an archive replay carrying
+        /// `.sent`. `.failed` is sticky in both directions — an archive
+        /// replay must not silently "fix" a failed send; the user resends it
+        /// explicitly.
+        func merged(with other: Delivery) -> Delivery {
+            guard self != .failed, other != .failed else { return .failed }
+            return other.rank > self.rank ? other : self
+        }
+
+        private var rank: Int {
+            switch self {
+            case .sending: return 0
+            case .sent: return 1
+            case .delivered: return 2
+            case .read: return 3
+            case .failed: return -1
+            }
+        }
     }
 
     enum Security: String, Codable {
@@ -136,7 +157,7 @@ final class ChatMessage {
             && !isGroupMessage
             && direction == .outgoing
             && kind == .text
-            && (delivery == .sent || delivery == .delivered)
+            && (delivery == .sent || delivery == .delivered || delivery == .read)
     }
 
     var isRetracted: Bool {
@@ -158,7 +179,7 @@ final class ChatMessage {
             && !isGroupMessage
             && !isRetracted
             && kind != .system
-            && (delivery == .sent || delivery == .delivered)
+            && (delivery == .sent || delivery == .delivered || delivery == .read)
     }
 
     var replyIdentifier: String? {

@@ -113,6 +113,17 @@ final class AppModel: ObservableObject {
     private var pendingRetractions: [String: XMPPService.RetractionEnvelope] = [:]
     private var pendingReactions: [String: XMPPService.ReactionEnvelope] = [:]
     private var correctionReceiptTargets: [String: String] = [:]
+
+    private struct PendingReadMarker {
+        var envelope: ReadStateSync.Envelope
+        var cameFromPeer: Bool
+    }
+    /// Read markers that arrived before the message they reference. MAM
+    /// replays newest stanzas first, so a read-marker is routinely applied
+    /// before its message on a fresh install; the marker waits here until the
+    /// message itself is upserted.
+    private var pendingReadMarkers: [String: PendingReadMarker] = [:]
+    private var lastDisplayedMarkerByConversation: [String: String] = [:]
     private var localChatStateByConversation: [String: ChatTypingState] = [:]
     private var localTypingPauseTasks: [String: Task<Void, Never>] = [:]
     private var remoteTypingExpiryTasks: [String: Task<Void, Never>] = [:]
@@ -730,6 +741,7 @@ final class AppModel: ObservableObject {
         if let index = conversations.firstIndex(where: { $0.jid == normalized }) {
             conversations[index].unreadCount = 0
         }
+        sendDisplayedMarkerIfNeeded(for: normalized)
         if addToRoster {
             rosterContactJIDs.insert(normalized)
             xmpp.addToRoster(jid: normalized, name: name)
@@ -747,6 +759,7 @@ final class AppModel: ObservableObject {
         if let index = conversations.firstIndex(where: { $0.jid == normalized }) {
             conversations[index].unreadCount = 0
         }
+        sendDisplayedMarkerIfNeeded(for: normalized)
         schedulePersist()
         syncWatch()
         if hasMoreOlderHistoryByConversation[normalized] == false,
@@ -2197,6 +2210,25 @@ final class AppModel: ObservableObject {
         case .delivered(let messageID):
             let targetID = correctionReceiptTargets.removeValue(forKey: messageID) ?? messageID
             updateMessage(id: targetID) { $0.delivery = .delivered }
+        case .read(let conversationID, let messageID):
+            // Peer-originated read receipt (XEP-0333 displayed marker): apply
+            // it locally and broadcast it to the user's other devices through
+            // a self-addressed read-marker message.
+            let targetID = correctionReceiptTargets.removeValue(forKey: messageID) ?? messageID
+            applyReadState(
+                ReadStateSync.Envelope(
+                    id: UUID().uuidString,
+                    conversationJID: conversationID,
+                    messageID: targetID,
+                    stanzaID: nil,
+                    timestamp: Date()
+                ),
+                cameFromPeer: true
+            )
+        case .readState(let envelope):
+            // Read-marker from another of the user's devices (Carbons live or
+            // MAM replay): apply without re-broadcasting.
+            applyReadState(envelope, cameFromPeer: false)
         case .omemo(let ready, let fingerprint):
             isOMEMOReady = ready
             ownFingerprint = fingerprint
@@ -2411,6 +2443,112 @@ final class AppModel: ObservableObject {
         }
         rebuildMessageIndex()
         schedulePersist()
+    }
+
+    // MARK: - Read receipts (XEP-0333) and cross-device read-state sync
+
+    private func applyReadState(_ envelope: ReadStateSync.Envelope, cameFromPeer: Bool) {
+        let conversationID = envelope.conversationJID.lowercased()
+        if let index =
+            messageIndex(originID: envelope.messageID, conversationID: conversationID)
+            ?? messageIndex(referenceID: envelope.messageID, conversationID: conversationID)
+            ?? envelope.stanzaID.flatMap({
+                messageIndex(referenceID: $0, conversationID: conversationID)
+            })
+        {
+            markRead(at: index, cameFromPeer: cameFromPeer)
+            return
+        }
+        // The marker raced ahead of the message (typical for MAM replays,
+        // which arrive newest first). Apply it when the message lands.
+        stashPendingReadMarker(envelope, cameFromPeer: cameFromPeer)
+    }
+
+    /// Promotes a matching outgoing message to `.read` and, when the receipt
+    /// came from the peer (not from another own device), broadcasts the state
+    /// to the user's other devices via Carbons/MAM. Failed messages are never
+    /// promoted by a receipt.
+    private func markRead(at index: Int, cameFromPeer: Bool) {
+        let message = messages[index]
+        guard message.direction == .outgoing,
+            message.delivery != .read,
+            message.delivery != .failed,
+            !message.isRetracted
+        else { return }
+        messages[index].delivery = .read
+        schedulePersist()
+        guard cameFromPeer else { return }
+        xmpp.syncReadState(
+            ReadStateSync.Envelope(
+                id: UUID().uuidString,
+                conversationJID: message.conversationID,
+                messageID: message.originID ?? message.clientID,
+                stanzaID: message.stanzaID,
+                timestamp: Date()
+            ))
+    }
+
+    private func stashPendingReadMarker(_ envelope: ReadStateSync.Envelope, cameFromPeer: Bool) {
+        // The marker may reference the message through its origin-id or its
+        // archived stanza-id; index it under every reference the arriving
+        // message can expose so `applyPendingReadState` always finds it.
+        let references = Set([envelope.messageID, envelope.stanzaID].compactMap { $0 })
+        for reference in references {
+            let key = pendingReadMarkerKey(
+                conversationID: envelope.conversationJID,
+                reference: reference
+            )
+            // A peer marker must keep its broadcast flag: a device-sync
+            // envelope must not silently shadow it.
+            if pendingReadMarkers[key]?.cameFromPeer == true { continue }
+            pendingReadMarkers[key] = PendingReadMarker(envelope: envelope, cameFromPeer: cameFromPeer)
+        }
+        if pendingReadMarkers.count > 200 {
+            if let oldestKey = pendingReadMarkers.min(by: {
+                $0.value.envelope.timestamp < $1.value.envelope.timestamp
+            })?.key {
+                pendingReadMarkers.removeValue(forKey: oldestKey)
+            }
+        }
+    }
+
+    private func pendingReadMarkerKey(conversationID: String, reference: String) -> String {
+        "\(conversationID.lowercased())|\(reference)"
+    }
+
+    /// Applies any read marker that arrived before the message it references.
+    /// Called from `upsertMessage` once the message itself is in the array.
+    private func applyPendingReadState(for message: ChatMessage, at index: Int) {
+        guard message.direction == .outgoing else { return }
+        let references = Set([message.clientID, message.originID, message.stanzaID].compactMap { $0 })
+        for reference in references {
+            let key = pendingReadMarkerKey(
+                conversationID: message.conversationID,
+                reference: reference
+            )
+            guard let pending = pendingReadMarkers.removeValue(forKey: key) else { continue }
+            markRead(at: index, cameFromPeer: pending.cameFromPeer)
+        }
+    }
+
+    /// Sends an XEP-0333 `<displayed/>` marker for the newest incoming 1:1
+    /// message once the chat is opened, so the peer's client can show it as
+    /// read. MUC rooms never get markers (XEP-0333); deduped per message so
+    /// repeated SwiftUI appearances do not resend.
+    private func sendDisplayedMarkerIfNeeded(for conversationID: String) {
+        guard let account else { return }
+        let normalized = conversationID.lowercased()
+        guard normalized != account.normalizedJID else { return }
+        guard let latest = messages
+            .filter({ $0.conversationID == normalized && $0.direction == .incoming })
+            .max(by: { $0.timestamp < $1.timestamp }),
+            !latest.isGroupMessage,
+            !latest.isRetracted,
+            latest.kind != .system
+        else { return }
+        guard lastDisplayedMarkerByConversation[normalized] != latest.clientID else { return }
+        lastDisplayedMarkerByConversation[normalized] = latest.clientID
+        xmpp.sendDisplayedMarker(messageID: latest.clientID, to: normalized)
     }
 
     private func recordCallHistory(_ entry: CallHistoryEntry) {
@@ -2868,9 +3006,7 @@ final class AppModel: ObservableObject {
         ) {
             let previous = messages[index]
             if previous.isRetracted {
-                if message.delivery == .delivered {
-                    messages[index].delivery = .delivered
-                }
+                messages[index].delivery = previous.delivery.merged(with: message.delivery)
                 updateConversationPreview(for: messages[index], incrementUnread: false)
                 return false
             }
@@ -2880,9 +3016,9 @@ final class AppModel: ObservableObject {
                 merged.mimeType = previous.mimeType ?? message.mimeType
                 merged.duration = previous.duration ?? message.duration
                 merged.byteCount = previous.byteCount ?? message.byteCount
-                if previous.delivery == .delivered {
-                    merged.delivery = .delivered
-                }
+                // MAM/MUC-MAM replays and Carbon copies carry `.sent`; a
+                // locally delivered or read copy must never be downgraded.
+                merged.delivery = previous.delivery.merged(with: message.delivery)
             }
             merged.replyToID = message.replyToID ?? previous.replyToID
             merged.replyToJID = message.replyToJID ?? previous.replyToJID
@@ -2944,6 +3080,7 @@ final class AppModel: ObservableObject {
                         conversationID: merged.conversationID
                     )] = index
             }
+            applyPendingReadState(for: merged, at: index)
             updateConversationPreview(for: merged, incrementUnread: false)
             return false
         }
@@ -2975,6 +3112,7 @@ final class AppModel: ObservableObject {
         let shouldIncrement =
             unreadOverride
             ?? (message.direction == .incoming && selectedConversationID != message.conversationID)
+        applyPendingReadState(for: message, at: insertedIndex)
         updateConversationPreview(for: message, incrementUnread: shouldIncrement)
         return true
     }

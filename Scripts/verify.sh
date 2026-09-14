@@ -91,9 +91,12 @@ required=(
   Tests/SCRAMSHA512Tests.swift
   Tests/AppLockPolicyTests.swift
   Tests/CallHistorySyncTests.swift
+  Tests/ReadStateSyncTests.swift
+  Tests/ChatMessageDeliveryTests.swift
   UITests/TimelineUITests.swift
   Sources/Shared/XMPP/LumaScramSha512Mechanism.swift
   Sources/Shared/XMPP/CallHistorySync.swift
+  Sources/Shared/XMPP/ReadStateSync.swift
   Sources/Shared/Security/AppLockVault.swift
   Sources/Shared/Models/AppLockPolicy.swift
   Sources/Shared/UI/AppLockView.swift
@@ -166,7 +169,7 @@ test "$(grep -c -- '- package: WebRTC' project.yml)" -eq 2 || {
   exit 1
 }
 
-if grep -R -q 'ChatBubbleShape\|maximumMediaSize\|25 МБ' Sources/Shared; then
+if grep -R -q 'ChatBubbleTailShape\|maximumMediaSize\|25 МБ' Sources/Shared; then
   echo "Legacy bubble tails or the old client attachment limit are still present"
   exit 1
 fi
@@ -404,6 +407,30 @@ grep -q 'syncCallHistory' Sources/Shared/Models/AppModel.swift || {
 }
 grep -q 'CallHistorySync.envelope' Sources/Shared/XMPP/XMPPService.swift || {
   echo "Incoming call-history payloads must be intercepted"
+  exit 1
+}
+grep -q 'https://luma.chat/read-marker' Sources/Shared/XMPP/ReadStateSync.swift || {
+  echo "Read state must sync through its service namespace"
+  exit 1
+}
+grep -q 'ReadStateSync.envelope' Sources/Shared/XMPP/XMPPService.swift || {
+  echo "Incoming read-marker payloads must be intercepted"
+  exit 1
+}
+grep -q 'syncReadState' Sources/Shared/Models/AppModel.swift || {
+  echo "Read receipts must be synced to the user's other devices"
+  exit 1
+}
+grep -q 'markersPublisher' Sources/Shared/XMPP/XMPPService.swift || {
+  echo "XEP-0333 displayed markers must mark messages as read"
+  exit 1
+}
+grep -q 'case read(conversationJID' Sources/Shared/XMPP/XMPPService.swift || {
+  echo "Read receipts must reference the conversation"
+  exit 1
+}
+grep -q 'merged(with: message.delivery)' Sources/Shared/Models/AppModel.swift || {
+  echo "MAM replays must not downgrade delivered or read state"
   exit 1
 }
 grep -q 'func deleteGroupChat' Sources/Shared/Models/AppModel.swift || {

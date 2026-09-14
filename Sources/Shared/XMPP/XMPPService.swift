@@ -248,6 +248,7 @@ final class XMPPService {
         case roomInvitation(RoomInvitationEnvelope)
         case avatar(jid: String, data: Data)
         case delivered(messageID: String)
+        case read(conversationJID: String, messageID: String)
         case omemo(ready: Bool, ownFingerprint: String?)
         case archiveBatch([ArchiveMutation])
         case archiveSyncing(Bool)
@@ -256,6 +257,7 @@ final class XMPPService {
         case call(CallSnapshot?)
         case callHistory(CallHistoryEntry)
         case callHistorySync(CallHistorySync.Envelope)
+        case readState(ReadStateSync.Envelope)
         case callError(String)
         case recoverableError(String)
     }
@@ -815,6 +817,41 @@ final class XMPPService {
         Logger(subsystem: "Luma", category: "call-sync")
             .info("sent call-history id=\(entry.id) peer=\(entry.peerJID) status=\(entry.outcome.rawValue)")
     }
+
+    /// Sends a `<read-marker/>` service message to the user's own bare JID
+    /// so Carbons deliver it to the other devices and MAM archives it. The
+    /// message is plaintext and never reaches the chat counterpart; MUC read
+    /// state rides the same self-addressed envelope and never enters the room
+    /// archive.
+    func syncReadState(_ marker: ReadStateSync.Envelope) {
+        guard let client, client.state == .connected(), let account else { return }
+        let message = Message()
+        message.to = JID(account.normalizedJID)
+        message.type = .chat
+        message.id = marker.id
+        message.body = Self.readMarkerBody
+        addOriginID(marker.id, to: message)
+        message.addChild(ReadStateSync.payloadElement(marker: marker))
+        client.context.writer.write(message, writeCompleted: nil)
+        Logger(subsystem: "Luma", category: "read-sync")
+            .info("sent read-marker id=\(marker.id) message=\(marker.messageID) conversation=\(marker.conversationJID)")
+    }
+
+    /// Sends an XEP-0333 `<displayed/>` chat marker so the peer's client can
+    /// show the message as read. Markers are never sent to MUC rooms
+    /// (XEP-0333 forbids them there); the read state of outgoing MUC messages
+    /// only changes when a member's client sends a marker anyway or when
+    /// another of the user's devices broadcasts a read-marker sync message.
+    func sendDisplayedMarker(messageID: String, to peerJID: String) {
+        guard let client, client.state == .connected() else { return }
+        let message = Message()
+        message.to = JID(peerJID)
+        message.type = .chat
+        message.chatMarkers = .displayed(id: messageID)
+        client.context.writer.write(message, writeCompleted: nil)
+    }
+
+    private static let readMarkerBody = "Сообщение прочитано"
 
     /// Detects OMEMO 2 (`urn:xmpp:omemo:2`) payloads, which the pinned
     /// MartinOMEMO version cannot decrypt (it only speaks the legacy
@@ -2105,6 +2142,17 @@ final class XMPPService {
             }
             .store(in: &cancellables)
 
+        // XEP-0333 chat markers. Martin republishes markers found on live
+        // stanzas, Carbons copies and archived messages through one publisher,
+        // so `<displayed/>` markers the server carbon-copies to the user's
+        // other devices reach this handler there as well.
+        client.module(.chatMarkers).markersPublisher
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] received in
+                self?.handleChatMarker(received)
+            }
+            .store(in: &cancellables)
+
         // Do not enqueue every archived stanza onto DispatchQueue.main. Martin
         // publishes all results before the final IQ callback, so a locked inbox
         // can receive the whole page on the parser queue and hand it to the
@@ -2182,6 +2230,41 @@ final class XMPPService {
         }
     }
 
+    /// XEP-0333 chat markers: `<displayed/>` marks an outgoing message as read,
+    /// `<received/>` as delivered. MUC markers are best effort — few clients
+    /// send them, but the room stanza-id maps them to the right outgoing
+    /// message.
+    private func handleChatMarker(_ received: ChatMarkersModule.ChatMarkerReceived) {
+        let message = received.message
+        guard message.type != .error else { return }
+        switch received.marker {
+        case .displayed(let id):
+            guard let conversationJID = markerConversationJID(for: message) else { return }
+            eventHandler?(.read(conversationJID: conversationJID, messageID: id))
+        case .received(let id):
+            eventHandler?(.delivered(messageID: id))
+        case .acknowledged:
+            break
+        }
+    }
+
+    /// Bare JID of the conversation a marker references. Peer markers arrive
+    /// with the peer in `from`; our own displayed markers carbon-copied from
+    /// another device carry our JID in `from` and the peer in `to`. Groupchat
+    /// markers reference the room.
+    private func markerConversationJID(for message: Message) -> String? {
+        if message.type == .groupchat {
+            return message.from?.bareJid.stringValue
+        }
+        if let from = message.from?.bareJid {
+            if let client, from == client.userBareJid {
+                return message.to?.bareJid.stringValue ?? from.stringValue
+            }
+            return from.stringValue
+        }
+        return message.to?.bareJid.stringValue
+    }
+
     /// Runs OMEMO decryption off the main actor and resumes with the raw
     /// result. Kept as a thin wrapper so `handle` keeps its existing switch
     /// logic and only the expensive `decode` call leaves the main thread.
@@ -2242,6 +2325,15 @@ final class XMPPService {
             Logger(subsystem: "Luma", category: "call-sync")
                 .info("received call-history id=\(sync.id) peer=\(sync.peerJID) status=\(sync.outcome.rawValue)")
             eventHandler?(.callHistorySync(sync))
+            return
+        }
+        // Read-marker service messages sync read receipts between the user's
+        // devices the same way: Carbons deliver them live, MAM replays them
+        // after reinstalls. They never become ordinary chat messages.
+        if let marker = ReadStateSync.envelope(from: message) {
+            Logger(subsystem: "Luma", category: "read-sync")
+                .info("received read-marker id=\(marker.id) message=\(marker.messageID) conversation=\(marker.conversationJID)")
+            eventHandler?(.readState(marker))
             return
         }
         guard message.type != .error,
