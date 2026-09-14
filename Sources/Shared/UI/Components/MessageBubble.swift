@@ -781,9 +781,8 @@ struct MessageBubble: View {
         }
     }
 
-    private var messageBubbleShape: RoundedRectangle {
-        // RoundedRectangle(cornerRadius: 18, style: .continuous)
-        ChatBubbleTailShape(isOutgoing: message.direction == .outgoing)
+    private var messageBubbleShape: ChatBubbleShape {
+        ChatBubbleShape(isOutgoing: message.direction == .outgoing)
     }
 
     private var deliveryIcon: String {

@@ -38,6 +38,9 @@ packages:
   OpenSSL:
     url: https://github.com/krzyzanowskim/OpenSSL.git
     from: 3.4.0
+#  SwiftChat:
+#    url: https://github.com/unionst/swift-chat.git
+#    from: 1.0.0
 
 targets:
   Luma:
@@ -56,6 +59,7 @@ targets:
       - package: MartinOMEMO
       - package: WebRTC
       - package: OpenSSL
+ #     - package: SwiftChat
       - target: LumaWatch
     info:
       path: Config/Luma-Info.plist
