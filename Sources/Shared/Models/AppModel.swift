@@ -2534,11 +2534,25 @@ final class AppModel: ObservableObject {
     /// Sends an XEP-0333 `<displayed/>` marker for the newest incoming 1:1
     /// message once the chat is opened, so the peer's client can show it as
     /// read. MUC rooms never get markers (XEP-0333); deduped per message so
-    /// repeated SwiftUI appearances do not resend.
+    /// repeated SwiftUI appearances do not resend. Self-chat has no peer, so
+    /// its own outgoing messages are promoted to `.read` locally instead of
+    /// sending a marker to our own bare JID.
     private func sendDisplayedMarkerIfNeeded(for conversationID: String) {
         guard let account else { return }
         let normalized = conversationID.lowercased()
-        guard normalized != account.normalizedJID else { return }
+        if normalized == account.normalizedJID {
+            for index in messages.indices {
+                let message = messages[index]
+                guard message.conversationID == normalized,
+                    message.direction == .outgoing,
+                    message.delivery != .failed,
+                    !message.isRetracted,
+                    message.kind != .system
+                else { continue }
+                markRead(at: index, cameFromPeer: false)
+            }
+            return
+        }
         guard let latest = messages
             .filter({ $0.conversationID == normalized && $0.direction == .incoming })
             .max(by: { $0.timestamp < $1.timestamp }),

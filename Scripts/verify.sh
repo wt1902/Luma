@@ -425,6 +425,10 @@ grep -q 'markersPublisher' Sources/Shared/XMPP/XMPPService.swift || {
   echo "XEP-0333 displayed markers must mark messages as read"
   exit 1
 }
+grep -q 'markRead(at: index, cameFromPeer: false)' Sources/Shared/Models/AppModel.swift || {
+  echo "Self-chat must mark its own outgoing messages as read locally"
+  exit 1
+}
 grep -q 'case read(conversationJID' Sources/Shared/XMPP/XMPPService.swift || {
   echo "Read receipts must reference the conversation"
   exit 1
