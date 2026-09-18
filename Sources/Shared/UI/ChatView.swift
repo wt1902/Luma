@@ -155,7 +155,6 @@ struct ChatView: View {
         )
         _knownEntranceIDs = State<Set<String>>(initialValue: [])
         _hasPlayedOpeningEntrance = State(initialValue: false)
-        _entranceConversationID = State<String?>(initialValue: nil)
         _entranceReleaseToken = State(initialValue: UUID())
     }
 
@@ -494,8 +493,7 @@ struct ChatView: View {
         }
     }
 
-    private func rebuildTimelineEntries(from newMessages: [ChatMessage]? = nil)
-    {
+    private func rebuildTimelineEntries(from newMessages: [ChatMessage]? = nil) {
         let source = newMessages ?? messages
         timelineEntries = ChatTimelineEntry.make(from: source)
         updateEntranceModes(for: source)
@@ -1568,8 +1566,7 @@ struct ChatView: View {
         }
     }
 
-    private func sendRecordedVideoNote(_ recording: VideoNoteRecorder.Recording)
-    {
+    private func sendRecordedVideoNote(_ recording: VideoNoteRecorder.Recording) {
         videoNoteIsSending = true
         Task { @MainActor in
             defer {

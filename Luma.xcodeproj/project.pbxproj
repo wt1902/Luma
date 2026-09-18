@@ -7,6 +7,10 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		AB12CD34EF56010203040503 /* ChatMessageEntrancePolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB12CD34EF56010203040501 /* ChatMessageEntrancePolicy.swift */; };
+		AB12CD34EF56010203040504 /* ChatMessageEntrancePolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB12CD34EF56010203040501 /* ChatMessageEntrancePolicy.swift */; };
+		AB12CD34EF56010203040505 /* MessageBubbleEntrance.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB12CD34EF56010203040502 /* MessageBubbleEntrance.swift */; };
+		AB12CD34EF56010203040506 /* MessageBubbleEntrance.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB12CD34EF56010203040502 /* MessageBubbleEntrance.swift */; };
 		00FCAB7210D005D2C30747CB /* AccountConfiguration.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2006464EAC88C6E4E2B08AC8 /* AccountConfiguration.swift */; };
 		01039E013AB84FA338B2A5CF /* MessageCorrectionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 096748EF4DC92889BCAB3260 /* MessageCorrectionTests.swift */; };
 		01E4131ED4DBED0BEAD465A2 /* ServerInfoView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CBA20B768A9C675FABCDC821 /* ServerInfoView.swift */; };
@@ -332,6 +336,8 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		AB12CD34EF56010203040501 /* ChatMessageEntrancePolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatMessageEntrancePolicy.swift; sourceTree = "<group>"; };
+		AB12CD34EF56010203040502 /* MessageBubbleEntrance.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageBubbleEntrance.swift; sourceTree = "<group>"; };
 		0142FF4A1B05C373DAB4CDBE /* VideoNoteCaptureView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoNoteCaptureView.swift; sourceTree = "<group>"; };
 		0386C2687C1C60EC734FDBB0 /* BubbleShapes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BubbleShapes.swift; sourceTree = "<group>"; };
 		03AC6BC7FC7CFFD69A20DA17 /* MessageBubble.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageBubble.swift; sourceTree = "<group>"; };
@@ -569,6 +575,7 @@
 				C04D749B7CA93CB7C59127D6 /* AttachmentDraft.swift */,
 				6079CE75BAB995515A8D5460 /* CallSnapshot.swift */,
 				12C6A6B83DA076867481CCF3 /* ChatMessage.swift */,
+				AB12CD34EF56010203040501 /* ChatMessageEntrancePolicy.swift */,
 				C37AAE886AA3B8782B89E1A0 /* ChatScrollPositionPolicy.swift */,
 				13E35F7F0CB0243311FCDD61 /* ChatTimelineEntry.swift */,
 				1C3E51BB890F05FD02C71F6E /* ChatTypingPolicy.swift */,
@@ -816,6 +823,7 @@
 				B96E7970930AB7F09CB5DA9C /* LocationMessagePreview.swift */,
 				4380219D3AF1D75EDF4D3167 /* MediaViewer.swift */,
 				03AC6BC7FC7CFFD69A20DA17 /* MessageBubble.swift */,
+				AB12CD34EF56010203040502 /* MessageBubbleEntrance.swift */,
 				8D2294F0FE44B2268A0620BB /* PhotoAttachmentPreview.swift */,
 				19C556A41E640592AF6376B6 /* ReplyThreadOverlay.swift */,
 				5003B4F9DF154543555E9825 /* RTCVideoRendererView.swift */,
@@ -1054,6 +1062,7 @@
 				97A3A0635ADA8A8227C94216 /* ChatBubbleShape.swift in Sources */,
 				7AC93485DA12BC90717739E9 /* ChatMediaImageCache.swift in Sources */,
 				66489D4D15366683D3095B3D /* ChatMessage.swift in Sources */,
+				AB12CD34EF56010203040503 /* ChatMessageEntrancePolicy.swift in Sources */,
 				D5E6B1859101ABBD33D90C3C /* ChatScrollPositionPolicy.swift in Sources */,
 				1E239B9338CEEA7EA704626C /* ChatTimelineEntry.swift in Sources */,
 				433A7B65E635FB59021F7D87 /* ChatTypingPolicy.swift in Sources */,
@@ -1100,6 +1109,7 @@
 				B33870CD89289E44882750C3 /* MediaViewer.swift in Sources */,
 				EBAF4861DD93FBEAA4B37D1C /* MediaViewerItem.swift in Sources */,
 				230E0DAA5396EA507D6F6D47 /* MessageBubble.swift in Sources */,
+				AB12CD34EF56010203040505 /* MessageBubbleEntrance.swift in Sources */,
 				FD9F8640841236BB78563573 /* MessageReaction.swift in Sources */,
 				30BE19F459FDDAD640F66C68 /* MessageReplyFallback.swift in Sources */,
 				94FB3597E01FC508F872861E /* MessageReplySwipePolicy.swift in Sources */,
@@ -1180,6 +1190,7 @@
 				2A7611650AB52EDABB978362 /* ChatBubbleShape.swift in Sources */,
 				6FCF6A4EFF8AE1FBFC2D81E1 /* ChatMediaImageCache.swift in Sources */,
 				8714A5A67956D6A78D4D3E4B /* ChatMessage.swift in Sources */,
+				AB12CD34EF56010203040504 /* ChatMessageEntrancePolicy.swift in Sources */,
 				8B98B818AC4379F03907B0E0 /* ChatScrollPositionPolicy.swift in Sources */,
 				7F7BA6805C1D1EBCEAFDD3AD /* ChatTimelineEntry.swift in Sources */,
 				B4AA654DF3A53AAAAC23915D /* ChatTypingPolicy.swift in Sources */,
@@ -1226,6 +1237,7 @@
 				CC5297F90A3DBD45C5E41A3A /* MediaViewer.swift in Sources */,
 				2C5BAAEF4EC7AAE5FE0FEEDB /* MediaViewerItem.swift in Sources */,
 				A90142509385DE6E83818953 /* MessageBubble.swift in Sources */,
+				AB12CD34EF56010203040506 /* MessageBubbleEntrance.swift in Sources */,
 				ECCD95DD4E16E0B393C707A9 /* MessageReaction.swift in Sources */,
 				C2CC9BABAE68FA9258694766 /* MessageReplyFallback.swift in Sources */,
 				D4E1CF1F7D948B2E72C063BE /* MessageReplySwipePolicy.swift in Sources */,
