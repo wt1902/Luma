@@ -967,6 +967,13 @@ final class XMPPService {
 
         let message = chat.createMessage(text: wireBody, id: messageID)
         addOriginID(messageID, to: message)
+        // XEP-0333: peers only answer with `<displayed/>` when the outgoing
+        // stanza is marked `<markable/>`. Martin adds `<request/>` (receipts)
+        // on its own but never markable, so 1:1 read state stayed stuck on
+        // "delivered". The element stays outside the OMEMO payload, which is
+        // exactly where Monal/Conversations look for it. MUC is exempt —
+        // XEP-0333 forbids markers in groupchats.
+        message.isMarkable = true
         message.lastMessageCorrectionId = replacingMessageID
         if chatStatesEnabled { message.chatState = .active }
         addReply(replyTo, fallback: replyFallback, to: message)

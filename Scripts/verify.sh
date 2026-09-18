@@ -429,6 +429,10 @@ if grep -q 'message.body = Self.readMarkerBody' Sources/Shared/XMPP/XMPPService.
   echo "Read-marker service stanzas must not carry a plaintext body (it leaks into self-chat on other clients)"
   exit 1
 fi
+grep -q 'message.isMarkable = true' Sources/Shared/XMPP/XMPPService.swift || {
+  echo "Outgoing 1:1 messages must be <markable/> or peers never answer with <displayed/>"
+  exit 1
+}
 grep -q 'markersPublisher' Sources/Shared/XMPP/XMPPService.swift || {
   echo "XEP-0333 displayed markers must mark messages as read"
   exit 1
