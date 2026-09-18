@@ -75,6 +75,13 @@ struct ChatView: View {
     @State private var captureSuspendsArchiveSync = false
     @State private var pickerResetToken = UUID()
     @State private var timelineEntries: [ChatTimelineEntry] = []
+    /// Messages-style entrance state: which rows currently animate, which IDs
+    /// the timeline already showed, and whether the opening cascade of this
+    /// conversation has played.
+    @State private var entranceModes: [String: MessageBubbleEntrance.Mode] = [:]
+    @State private var knownEntranceIDs: Set<String> = []
+    @State private var hasPlayedOpeningEntrance = false
+    @State private var entranceReleaseToken = UUID()
 
     /// Messages of this conversation straight from the SwiftData store,
     /// ordered like `AppModel.selectedMessages`: timestamp, then clientID.
@@ -143,6 +150,13 @@ struct ChatView: View {
         _captureSuspendsArchiveSync = State(initialValue: false)
         _pickerResetToken = State(initialValue: UUID())
         _timelineEntries = State<[ChatTimelineEntry]>(initialValue: [])
+        _entranceModes = State<[String: MessageBubbleEntrance.Mode]>(
+            initialValue: [:]
+        )
+        _knownEntranceIDs = State<Set<String>>(initialValue: [])
+        _hasPlayedOpeningEntrance = State(initialValue: false)
+        _entranceConversationID = State<String?>(initialValue: nil)
+        _entranceReleaseToken = State(initialValue: UUID())
     }
 
     var body: some View {
@@ -376,6 +390,10 @@ struct ChatView: View {
             historyTopTriggerVisible = false
             historyAutoContinueCount = 0
             emptyHistoryRetryCount = 0
+            entranceModes = [:]
+            knownEntranceIDs = []
+            hasPlayedOpeningEntrance = false
+            entranceReleaseToken = UUID()
         }
         .onDisappear {
             model.endConversationViewing(jid: conversation.jid)
@@ -478,7 +496,87 @@ struct ChatView: View {
 
     private func rebuildTimelineEntries(from newMessages: [ChatMessage]? = nil)
     {
-        timelineEntries = ChatTimelineEntry.make(from: newMessages ?? messages)
+        let source = newMessages ?? messages
+        timelineEntries = ChatTimelineEntry.make(from: source)
+        updateEntranceModes(for: source)
+    }
+
+    /// Decides which rows play a Messages-style entrance after a rebuild.
+    /// The first page of an opened conversation cascades bottom-up; rows that
+    /// appear later (a send, an incoming message) launch from the composer's
+    /// edge. Modes are released once the animation window closes so a row
+    /// recycled by the lazy stack during scrolling reappears statically.
+    private func updateEntranceModes(for newMessages: [ChatMessage]) {
+        let ids = newMessages.map(\.clientID)
+        let known = knownEntranceIDs
+        knownEntranceIDs = Set(ids)
+
+        guard hasPlayedOpeningEntrance else {
+            guard !ids.isEmpty else { return }
+            hasPlayedOpeningEntrance = true
+            // The first message ever in an empty chat should launch out of
+            // the composer like any other send, not cascade in.
+            if ids.count == 1, known.isEmpty,
+                newMessages.first?.direction == .outgoing
+            {
+                applyLaunch(for: newMessages, ids: ids)
+                return
+            }
+            let delays = ChatMessageEntrancePolicy.entranceDelays(
+                forIDs: ids
+            )
+            for (id, delay) in delays {
+                entranceModes[id] = .cascade(delay: delay)
+            }
+            scheduleEntranceRelease(
+                ids: Set(delays.keys),
+                after: ChatMessageEntrancePolicy.entranceCascadeDuration
+            )
+            return
+        }
+
+        applyLaunch(
+            for: newMessages,
+            ids: ChatMessageEntrancePolicy.appendedLaunchIDs(
+                in: ids,
+                after: known
+            )
+        )
+    }
+
+    private func applyLaunch(for messages: [ChatMessage], ids: [String]) {
+        guard !ids.isEmpty else { return }
+        let launched = Set(ids)
+        var applied: Set<String> = []
+        for message in messages where launched.contains(message.clientID) {
+            entranceModes[message.clientID] = .launch(
+                outgoing: message.direction == .outgoing
+            )
+            applied.insert(message.clientID)
+        }
+        scheduleEntranceRelease(
+            ids: applied,
+            after: ChatMessageEntrancePolicy.entranceAnimationDuration
+        )
+    }
+
+    private func scheduleEntranceRelease(
+        ids: Set<String>,
+        after delay: TimeInterval
+    ) {
+        guard !ids.isEmpty else { return }
+        let token = entranceReleaseToken
+        Task { @MainActor in
+            try? await Task.sleep(
+                nanoseconds: UInt64(delay * 1_000_000_000)
+            )
+            guard !Task.isCancelled, token == entranceReleaseToken else {
+                return
+            }
+            for id in ids {
+                entranceModes[id] = nil
+            }
+        }
     }
 
     private var isSelectingMessages: Bool {
@@ -605,6 +703,13 @@ struct ChatView: View {
                                                 message
                                             )
                                         }
+                                    )
+                                    .modifier(
+                                        MessageBubbleEntrance(
+                                            mode: entranceModes[
+                                                message.clientID
+                                            ] ?? .settled
+                                        )
                                     )
                                     .id(message.clientID)
                                 }
