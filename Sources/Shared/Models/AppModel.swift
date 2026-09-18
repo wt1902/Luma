@@ -1170,7 +1170,7 @@ final class AppModel: ObservableObject {
                 $0.delivery = $0.delivery.merged(with: .sent)
                 $0.encryptionFingerprint = fingerprint
             }
-            if previous.conversationID == account.normalizedJID {
+            if previous.conversationID == account?.normalizedJID {
                 markMessageAsReadIfOutgoing(id: id)
             }
         } catch {
