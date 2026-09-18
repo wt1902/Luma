@@ -829,7 +829,10 @@ final class XMPPService {
         message.to = JID(account.normalizedJID)
         message.type = .chat
         message.id = marker.id
-        message.body = Self.readMarkerBody
+        // No <body>: this is a service stanza for the user's own devices only.
+        // A plaintext body would leak into the self-chat and be rendered as a
+        // normal message by clients that do not know our read-marker namespace
+        // (Conversations, Monal), so the marker rides solely on its payload.
         addOriginID(marker.id, to: message)
         message.addChild(ReadStateSync.payloadElement(marker: marker))
         client.context.writer.write(message, writeCompleted: nil)
@@ -850,8 +853,6 @@ final class XMPPService {
         message.chatMarkers = .displayed(id: messageID)
         client.context.writer.write(message, writeCompleted: nil)
     }
-
-    private static let readMarkerBody = "Сообщение прочитано"
 
     /// Detects OMEMO 2 (`urn:xmpp:omemo:2`) payloads, which the pinned
     /// MartinOMEMO version cannot decrypt (it only speaks the legacy

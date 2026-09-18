@@ -421,6 +421,14 @@ grep -q 'syncReadState' Sources/Shared/Models/AppModel.swift || {
   echo "Read receipts must be synced to the user's other devices"
   exit 1
 }
+grep -q 'delivery = \$0.delivery.merged(with: .delivered)' Sources/Shared/Models/AppModel.swift || {
+  echo "Delivery receipts must never downgrade an already read message"
+  exit 1
+}
+if grep -q 'message.body = Self.readMarkerBody' Sources/Shared/XMPP/XMPPService.swift; then
+  echo "Read-marker service stanzas must not carry a plaintext body (it leaks into self-chat on other clients)"
+  exit 1
+fi
 grep -q 'markersPublisher' Sources/Shared/XMPP/XMPPService.swift || {
   echo "XEP-0333 displayed markers must mark messages as read"
   exit 1

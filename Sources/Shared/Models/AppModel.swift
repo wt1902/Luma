@@ -1071,10 +1071,13 @@ final class AppModel: ObservableObject {
                 isGroup: isGroup
             )
             updateMessage(id: id) {
-                $0.delivery = .sent
+                $0.delivery = $0.delivery.merged(with: .sent)
                 $0.encryptionFingerprint = fingerprint
             }
             let conversationID = peer.lowercased()
+            if conversationID == account.normalizedJID {
+                markMessageAsReadIfOutgoing(id: id)
+            }
             localTypingPauseTasks[conversationID]?.cancel()
             localTypingPauseTasks[conversationID] = nil
             localChatStateByConversation[conversationID] = .active
@@ -1117,8 +1120,11 @@ final class AppModel: ObservableObject {
                 isGroup: isGroup
             )
             updateMessage(id: id) {
-                $0.delivery = .sent
+                $0.delivery = $0.delivery.merged(with: .sent)
                 $0.encryptionFingerprint = fingerprint
+            }
+            if peer.lowercased() == account.normalizedJID {
+                markMessageAsReadIfOutgoing(id: id)
             }
         } catch {
             updateMessage(id: id) { $0.delivery = .failed }
@@ -1161,8 +1167,11 @@ final class AppModel: ObservableObject {
                 replacingMessageID: previous.clientID
             )
             updateMessage(id: id) {
-                $0.delivery = .sent
+                $0.delivery = $0.delivery.merged(with: .sent)
                 $0.encryptionFingerprint = fingerprint
+            }
+            if previous.conversationID == account.normalizedJID {
+                markMessageAsReadIfOutgoing(id: id)
             }
         } catch {
             correctionReceiptTargets.removeValue(forKey: correctionID)
@@ -1511,9 +1520,12 @@ final class AppModel: ObservableObject {
                 isGroup: isGroup
             )
             updateMessage(id: id) {
-                $0.delivery = .sent
+                $0.delivery = $0.delivery.merged(with: .sent)
                 $0.remoteAttachmentURL = result.remoteURL
                 $0.encryptionFingerprint = result.fingerprint
+            }
+            if peer.lowercased() == account.normalizedJID {
+                markMessageAsReadIfOutgoing(id: id)
             }
             sentID = id
         } catch {
@@ -1565,9 +1577,12 @@ final class AppModel: ObservableObject {
                 isGroup: message.isGroupMessage
             )
             updateMessage(id: message.clientID) {
-                $0.delivery = .sent
+                $0.delivery = $0.delivery.merged(with: .sent)
                 $0.remoteAttachmentURL = result.remoteURL
                 $0.encryptionFingerprint = result.fingerprint
+            }
+            if message.conversationID == account?.normalizedJID {
+                markMessageAsReadIfOutgoing(id: message.clientID)
             }
         } catch {
             updateMessage(id: message.clientID) { $0.delivery = .failed }
@@ -2209,7 +2224,13 @@ final class AppModel: ObservableObject {
             Task { try? await avatarCache.store(data, for: normalized) }
         case .delivered(let messageID):
             let targetID = correctionReceiptTargets.removeValue(forKey: messageID) ?? messageID
-            updateMessage(id: targetID) { $0.delivery = .delivered }
+            // A `<received/>` receipt can arrive after the chat was already
+            // opened (or after an XEP-0333 marker marked it read). Merge with
+            // the monotonic ladder instead of overwriting, so `.read` is never
+            // downgraded back to `.delivered`.
+            updateMessage(id: targetID) {
+                $0.delivery = $0.delivery.merged(with: .delivered)
+            }
         case .read(let conversationID, let messageID):
             // Peer-originated read receipt (XEP-0333 displayed marker): apply
             // it locally and broadcast it to the user's other devices through
@@ -2531,6 +2552,17 @@ final class AppModel: ObservableObject {
         }
     }
 
+    /// Self-chat has no peer that could answer with a `<displayed/>` marker,
+    /// so an outgoing message counts as read the moment the server accepted
+    /// it. `markRead` keeps `.failed` messages untouched and never re-syncs
+    /// the state to other devices (cameFromPeer == false).
+    private func markMessageAsReadIfOutgoing(id: String) {
+        guard let account,
+            let index = messageIndex(id: id, conversationID: account.normalizedJID)
+        else { return }
+        markRead(at: index, cameFromPeer: false)
+    }
+
     /// Sends an XEP-0333 `<displayed/>` marker for the newest incoming 1:1
     /// message once the chat is opened, so the peer's client can show it as
     /// read. MUC rooms never get markers (XEP-0333); deduped per message so
@@ -2752,7 +2784,7 @@ final class AppModel: ObservableObject {
         messages[index].security = envelope.security
         messages[index].encryptionFingerprint = envelope.fingerprint
         if envelope.isOutgoing {
-            messages[index].delivery = .sent
+            messages[index].delivery = messages[index].delivery.merged(with: .sent)
         }
         updateConversationPreview(for: messages[index], incrementUnread: false)
     }
