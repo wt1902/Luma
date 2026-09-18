@@ -28,8 +28,10 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY=""
+      - name: Prepare macOS Artifact
+        run: mkdir -p upload && cp -rv build/DerivedData/Build/Products/Release/Luma.app upload/
       - name: Upload macOS Artifact
         uses: actions/upload-artifact@v4
         with:
           name: Luma
-          path: build/DerivedData/Build/Products/Release/Luma.app
+          path: upload
