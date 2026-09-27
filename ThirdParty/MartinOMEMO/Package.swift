@@ -23,7 +23,12 @@ let package = Package(
         // Targets can depend on other targets in this package, and on products in packages which this package depends on.
         .target(
             name: "MartinOMEMO",
-            dependencies: ["Martin", "libsignal"]),
+            dependencies: ["Martin", "libsignal"],
+            swiftSettings: [
+                // Martin 3.2 still exposes deprecated event APIs that are
+                // required for compatibility with older clients.
+                .unsafeFlags(["-suppress-warnings"])
+            ]),
         .testTarget(
             name: "MartinOMEMOTests",
             dependencies: ["MartinOMEMO"]),

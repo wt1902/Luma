@@ -61,7 +61,7 @@ enum SCRAMHash {
 
     func hash(data: Data) -> Data {
         var output = [UInt8](repeating: 0, count: digestLength)
-        data.withUnsafeBytes { bytes in
+        _ = data.withUnsafeBytes { bytes in
             switch self {
             case .sha1:
                 CC_SHA1(bytes.baseAddress, CC_LONG(bytes.count), &output)

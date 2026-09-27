@@ -55,7 +55,6 @@
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "BAB78463D7DE07A8F7B3D27D"
             BuildableName = "LumaWatch.app"
-            BlueprintName = "LumaWatch"
             ReferencedContainer = "container:Luma.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
@@ -72,7 +71,6 @@
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "BAB78463D7DE07A8F7B3D27D"
             BuildableName = "LumaWatch.app"
-            BlueprintName = "LumaWatch"
             ReferencedContainer = "container:Luma.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>

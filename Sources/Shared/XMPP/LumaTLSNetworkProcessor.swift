@@ -201,7 +201,7 @@ final class LumaTLSNetworkProcessor: SocketConnector.NetworkProcessor, SSLNetwor
     override func read(data: Data) {
         guard !handshakeFailed else { return }
         ensureTLS()
-        guard let ssl, let readBIO else { return }
+        guard ssl != nil, let readBIO else { return }
         data.withUnsafeBytes { raw in
             _ = BIO_write(readBIO, raw.baseAddress, Int32(raw.count))
         }
@@ -415,9 +415,7 @@ final class LumaTLSNetworkProcessor: SocketConnector.NetworkProcessor, SSLNetwor
             switch certificateValidation {
             case .default:
                 SecTrustSetPolicies(trust, SecPolicyCreateSSL(true, domain as CFString))
-                var result = SecTrustResultType.invalid
-                SecTrustEvaluate(trust, &result)
-                validated = result == .proceed || result == .unspecified
+                validated = SecTrustEvaluateWithError(trust, nil)
             case .fingerprint(let fingerprint):
                 validated = Self.matchesFingerprint(leafDER, fingerprint: fingerprint)
             case .customValidator(let validator):

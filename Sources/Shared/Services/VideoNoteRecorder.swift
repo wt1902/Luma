@@ -1033,7 +1033,7 @@ final class VideoNoteRecorder: NSObject, ObservableObject, AVCaptureFileOutputRe
                         // consistent no matter which camera is recording.
                         let microphone =
                             AVCaptureDevice.default(
-                                .builtInMicrophone,
+                                .microphone,
                                 for: .audio,
                                 position: .back
                             )
@@ -1194,7 +1194,7 @@ private actor VideoNoteFileInspector {
             ]
         )
         videoInput.expectsMediaDataInRealTime = false
-        videoInput.transform = videoTrack.preferredTransform
+        videoInput.transform = (try? await videoTrack.load(.preferredTransform)) ?? .identity
         let adaptor = AVAssetWriterInputPixelBufferAdaptor(
             assetWriterInput: videoInput,
             sourcePixelBufferAttributes: [
@@ -1397,7 +1397,7 @@ private actor VideoNoteFileInspector {
                 return nil
             }
             if !hasVideo {
-                transform = source.preferredTransform
+                transform = (try? await source.load(.preferredTransform)) ?? .identity
                 hasVideo = true
             }
             cursor = cursor + duration
@@ -1428,10 +1428,6 @@ private actor VideoNoteFileInspector {
         do {
             try await exporter.export(to: outputURL, as: .mov)
         } catch {
-            try? FileManager.default.removeItem(at: outputURL)
-            return nil
-        }
-        guard exporter.status == .completed else {
             try? FileManager.default.removeItem(at: outputURL)
             return nil
         }

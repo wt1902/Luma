@@ -78,6 +78,7 @@ Luma — рабочий MVP XMPP-клиента для iOS, iPadOS, macOS и App
   iPhone, iPad, Mac и Apple Watch; один и тот же catalog явно подключён ко всем
   app-target’ам, а имя закреплено в build settings и Info.plist;
 - адаптивный SwiftUI-интерфейс для iPhone, iPad и Mac;
+- поддержка портретной и альбомной ориентации на iPhone и всех четырёх ориентаций на iPad;
 - companion-приложение watchOS: последние чаты, диктовка/ответы, а также запись
   голосового до 60 секунд с отменой и предпрослушиванием; `.m4a` передаётся на
   iPhone фоновой файловой очередью WatchConnectivity, после чего iPhone

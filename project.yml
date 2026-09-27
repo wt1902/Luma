@@ -69,6 +69,15 @@ targets:
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         UILaunchScreen: {}
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
         UIBackgroundModes:
           - audio
           - fetch
@@ -89,6 +98,9 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: $(COMPANION_BUNDLE_IDENTIFIER)
         PRODUCT_NAME: Luma
         TARGETED_DEVICE_FAMILY: "1,2"
+        # The remaining diagnostics come from APIs that Martin still requires
+        # for XMPP/TLS compatibility (QueueDispatcher and SecureTransport).
+        SWIFT_SUPPRESS_WARNINGS: true
         SUPPORTS_MACCATALYST: false
         DEVELOPMENT_TEAM: K3AS449A74
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor

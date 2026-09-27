@@ -50,9 +50,9 @@ struct WatchVoiceMessage: Sendable {
 }
 
 #if os(iOS) && canImport(WatchConnectivity)
-import WatchConnectivity
+@preconcurrency import WatchConnectivity
 
-final class PhoneWatchBridge: NSObject, WCSessionDelegate {
+final class PhoneWatchBridge: NSObject, WCSessionDelegate, @unchecked Sendable {
     var onReply: ((String, String) -> Void)?
     var onVoiceMessage: ((WatchVoiceMessage) -> Void)? {
         didSet { deliverPendingVoiceMessages() }

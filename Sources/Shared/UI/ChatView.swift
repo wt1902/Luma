@@ -27,6 +27,7 @@ private enum EmojiPickerPresentation: Identifiable {
 struct ChatView: View {
     private static let bottomAnchorID = "luma-chat-timeline-bottom"
     private static let timelineCoordinateSpace = "luma-chat-timeline-space"
+    private static let localHistoryPageSize = 60
 
     @ObservedObject var model: AppModel
     let conversation: Conversation
@@ -75,6 +76,8 @@ struct ChatView: View {
     @State private var captureSuspendsArchiveSync = false
     @State private var pickerResetToken = UUID()
     @State private var timelineEntries: [ChatTimelineEntry] = []
+    @State private var visibleLocalMessageCount = 0
+    @State private var localHistoryExhausted = false
     /// Messages-style entrance state: which rows currently animate, which IDs
     /// the timeline already showed, and whether the opening cascade of this
     /// conversation has played.
@@ -150,6 +153,8 @@ struct ChatView: View {
         _captureSuspendsArchiveSync = State(initialValue: false)
         _pickerResetToken = State(initialValue: UUID())
         _timelineEntries = State<[ChatTimelineEntry]>(initialValue: [])
+        _visibleLocalMessageCount = State(initialValue: 0)
+        _localHistoryExhausted = State(initialValue: false)
         _entranceModes = State<[String: MessageBubbleEntrance.Mode]>(
             initialValue: [:]
         )
@@ -389,6 +394,8 @@ struct ChatView: View {
             historyTopTriggerVisible = false
             historyAutoContinueCount = 0
             emptyHistoryRetryCount = 0
+            visibleLocalMessageCount = 0
+            localHistoryExhausted = false
             entranceModes = [:]
             knownEntranceIDs = []
             hasPlayedOpeningEntrance = false
@@ -495,8 +502,21 @@ struct ChatView: View {
 
     private func rebuildTimelineEntries(from newMessages: [ChatMessage]? = nil) {
         let source = newMessages ?? messages
-        timelineEntries = ChatTimelineEntry.make(from: source)
-        updateEntranceModes(for: source)
+        if visibleLocalMessageCount == 0 {
+            visibleLocalMessageCount = min(Self.localHistoryPageSize, source.count)
+        } else if localHistoryExhausted {
+            visibleLocalMessageCount = source.count
+        } else {
+            visibleLocalMessageCount = min(visibleLocalMessageCount, source.count)
+        }
+        localHistoryExhausted = visibleLocalMessageCount >= source.count
+        let visible = Array(source.suffix(visibleLocalMessageCount))
+        timelineEntries = ChatTimelineEntry.make(from: visible)
+        updateEntranceModes(for: visible)
+    }
+
+    private var hasMoreLocalHistory: Bool {
+        visibleLocalMessageCount < messages.count
     }
 
     /// Decides which rows play a Messages-style entrance after a rebuild.
@@ -588,7 +608,7 @@ struct ChatView: View {
                     ScrollView {
                         LazyVStack(spacing: 5) {
                             if hasCompletedInitialScroll,
-                                model.hasMoreOlderHistory,
+                                (hasMoreLocalHistory || model.hasMoreOlderHistory),
                                 !timelineEntries.isEmpty
                             {
                                 Color.clear
@@ -625,7 +645,7 @@ struct ChatView: View {
                                 .onAppear {
                                     // Empty timeline has no scroll gesture, so load
                                     // the first page directly when it appears.
-                                    guard model.hasMoreOlderHistory,
+                                    guard hasMoreLocalHistory || model.hasMoreOlderHistory,
                                         !model.isLoadingOlderHistory
                                     else { return }
                                     model
@@ -815,6 +835,17 @@ struct ChatView: View {
                         selectedMessageIDs.formIntersection(
                             Set(timelineEntries.map(\.id))
                         )
+                        guard historyLoadAnchorID != nil,
+                            !model.isLoadingOlderHistory,
+                            historyTopTriggerVisible,
+                            let anchor = historyLoadAnchorID
+                        else { return }
+                        Task { @MainActor in
+                            await Task.yield()
+                            proxy.scrollTo(anchor, anchor: .top)
+                            historyLoadAnchorID = nil
+                            historyTopTriggerArmed = true
+                        }
                     }
 
                     if hasCompletedInitialScroll,
@@ -1995,6 +2026,16 @@ struct ChatView: View {
         historyTopTriggerArmed = false
         historyLoadAnchorID = timelineEntries.first?.id
         historyLoadEntryCount = timelineEntries.count
+        if hasMoreLocalHistory {
+            visibleLocalMessageCount = min(
+                messages.count,
+                visibleLocalMessageCount + Self.localHistoryPageSize
+            )
+            localHistoryExhausted = visibleLocalMessageCount >= messages.count
+            rebuildTimelineEntries(from: messages)
+            historyTopTriggerArmed = true
+            return
+        }
         model.loadOlderHistoryForSelectedConversation()
     }
 

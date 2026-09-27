@@ -31,11 +31,12 @@ enum VideoNoteRotationPolicy {
         /// sensor (UIDevice.current.orientation) can report landscape or
         /// face-up while the app stays portrait, which is exactly how a
         /// portrait circle ended up encoded sideways.
+        @MainActor
         static var currentInterfaceOrientation: InterfaceOrientation {
             let orientation = UIApplication.shared.connectedScenes
                 .compactMap { $0 as? UIWindowScene }
                 .first { $0.activationState == .foregroundActive }?
-                .interfaceOrientation
+                .effectiveGeometry.interfaceOrientation
             switch orientation {
             case .portraitUpsideDown: return .portraitUpsideDown
             case .landscapeLeft: return .landscapeLeft

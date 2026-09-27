@@ -3,7 +3,7 @@ import Combine
 import CommonCrypto
 import CryptoKit
 import os
-import Martin
+@preconcurrency import Martin
 import MartinOMEMO
 
 extension XmppModuleIdentifier {
@@ -22,7 +22,7 @@ extension XmppModuleIdentifier {
 ///   `<bundle>` with `<spk>/<spks>/<ik>/<prekeys><pk>`).
 /// The Double Ratchet sessions are shared with the legacy OMEMO module
 /// through the same SignalStorage.
-final class LumaOMEMO2Module: AbstractPEPModule, XmppModule {
+final class LumaOMEMO2Module: AbstractPEPModule, XmppModule, @unchecked Sendable {
     public static let ID = "omemo2"
     public static let IDENTIFIER = XmppModuleIdentifier<LumaOMEMO2Module>()
     public static let XMLNS = "urn:xmpp:omemo:2"
@@ -98,7 +98,8 @@ final class LumaOMEMO2Module: AbstractPEPModule, XmppModule {
                     return
                 }
                 let known = listEl.mapChildren(transform: { $0.getAttribute("id").flatMap(Int32.init) })
-                self.devicesQueue.async { self.devices[jid] = known }
+                let jidString = jid.stringValue
+                self.devicesQueue.async { self.devices[BareJID(jidString)] = known }
                 continuation.resume(returning: known)
             }
         }

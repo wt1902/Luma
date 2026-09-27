@@ -2485,26 +2485,44 @@ final class AppModel: ObservableObject {
         stashPendingReadMarker(envelope, cameFromPeer: cameFromPeer)
     }
 
-    /// Promotes a matching outgoing message to `.read` and, when the receipt
-    /// came from the peer (not from another own device), broadcasts the state
-    /// to the user's other devices via Carbons/MAM. Failed messages are never
+    /// Promotes the matching outgoing message and every earlier outgoing
+    /// message in the same conversation to `.read`. XEP-0333 markers are
+    /// cumulative in practice: a marker for message N means the peer has
+    /// displayed the whole conversation through N. Failed messages are never
     /// promoted by a receipt.
     private func markRead(at index: Int, cameFromPeer: Bool) {
-        let message = messages[index]
-        guard message.direction == .outgoing,
-            message.delivery != .read,
-            message.delivery != .failed,
-            !message.isRetracted
+        guard messages.indices.contains(index) else { return }
+        let target = messages[index]
+        guard target.direction == .outgoing,
+            target.delivery != .failed,
+            !target.isRetracted
         else { return }
-        messages[index].delivery = .read
+
+        let targetConversation = target.conversationID
+        var changed = false
+        for candidateIndex in messages.indices {
+            let candidate = messages[candidateIndex]
+            guard candidate.conversationID == targetConversation,
+                candidate.direction == .outgoing,
+                candidate.delivery != .read,
+                candidate.delivery != .failed,
+                !candidate.isRetracted,
+                candidate.timestamp < target.timestamp
+                    || (candidate.timestamp == target.timestamp
+                        && candidate.clientID <= target.clientID)
+            else { continue }
+            messages[candidateIndex].delivery = .read
+            changed = true
+        }
+        guard changed else { return }
         schedulePersist()
         guard cameFromPeer else { return }
         xmpp.syncReadState(
             ReadStateSync.Envelope(
                 id: UUID().uuidString,
-                conversationJID: message.conversationID,
-                messageID: message.originID ?? message.clientID,
-                stanzaID: message.stanzaID,
+                conversationJID: target.conversationID,
+                messageID: target.originID ?? target.clientID,
+                stanzaID: target.stanzaID,
                 timestamp: Date()
             ))
     }

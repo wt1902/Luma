@@ -28,7 +28,7 @@ final class LumaSaslFailureModule: XmppModuleBase, XmppModule {
     }
 
     func process(stanza: Stanza) throws {
-        let condition = stanza.findChild()?.name
+        let condition = stanza.firstChild(where: { _ in true })?.name
         let text = stanza.firstChild(name: "text")?.value
         lock.lock()
         stored = Failure(condition: condition, text: text)
