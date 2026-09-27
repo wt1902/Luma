@@ -26,6 +26,7 @@ enum RuntimeEnvironment {
 @MainActor
 final class AppModel: ObservableObject {
     @Published private(set) var account: AccountConfiguration?
+    @Published private(set) var accounts: [AccountConfiguration] = []
     @Published private(set) var connectionStatus: XMPPService.ConnectionStatus = .disconnected(
         reason: nil)
     private(set) var conversations: [Conversation] = [] {
@@ -351,7 +352,10 @@ final class AppModel: ObservableObject {
         guard !RuntimeEnvironment.isRunningTests,
             !RuntimeEnvironment.isRunningPreviews
         else { return }
-        guard let saved = preferences.load() else { return }
+        let configured = preferences.loadAccounts()
+        accounts = configured
+        if !configured.isEmpty { try? preferences.saveAccounts(configured) }
+        guard let saved = preferences.load() ?? configured.first else { return }
         prepareStore(for: saved.normalizedJID)
         account = saved
         globalEncryptionEnabled = preferences.encryptionEnabled(for: saved.normalizedJID)
@@ -432,7 +436,9 @@ final class AppModel: ObservableObject {
                 mamCheckpoints: mamCheckpoints
             )
             try credentials.save(password: password, for: account.normalizedJID)
+            accounts = accounts.filter { $0.normalizedJID != account.normalizedJID } + [account]
             try preferences.save(account)
+            try preferences.saveAccounts(accounts)
             await notifications.requestAuthorization()
         } catch {
             await xmpp.disconnect()
@@ -450,7 +456,10 @@ final class AppModel: ObservableObject {
     func signOut(forgetHistory: Bool = false) async {
         let oldAccount = account
         await xmpp.disconnect()
-        preferences.clear()
+        if let oldAccount {
+            accounts.removeAll { $0.normalizedJID == oldAccount.normalizedJID }
+            try? preferences.saveAccounts(accounts)
+        }
         if let oldAccount {
             try? credentials.deletePassword(for: oldAccount.normalizedJID)
             if forgetHistory {
@@ -492,6 +501,49 @@ final class AppModel: ObservableObject {
         resetTypingState()
         resetMediaSendActivity()
         resetMediaPreviews()
+        if let next = accounts.first {
+            await switchAccount(to: next)
+        }
+    }
+
+    /// Adds an account and makes it the active connection. The login screen
+    /// uses the regular sign-in path, so credentials and per-account archives
+    /// are handled exactly as they are for the first account.
+    func addAccount(account: AccountConfiguration, password: String) async {
+        await signIn(account: account, password: password)
+    }
+
+    func switchAccount(to target: AccountConfiguration) async {
+        guard target.normalizedJID != account?.normalizedJID else { return }
+        let password: String
+        do {
+            guard let stored = try credentials.password(for: target.normalizedJID) else {
+                errorMessage = "Для этого аккаунта нет пароля в Keychain. Войдите снова."
+                return
+            }
+            password = stored
+        } catch {
+            errorMessage = "Для этого аккаунта нет пароля в Keychain. Войдите снова."
+            return
+        }
+        await xmpp.disconnect()
+        prepareStore(for: target.normalizedJID)
+        account = target
+        try? preferences.save(target)
+        globalEncryptionEnabled = preferences.encryptionEnabled(for: target.normalizedJID)
+        typingIndicatorsEnabled = preferences.chatStatesEnabled(for: target.normalizedJID)
+        xmpp.setChatStatesEnabled(typingIndicatorsEnabled)
+        await loadArchive(for: target.normalizedJID)
+        do {
+            try await xmpp.connect(
+                account: target,
+                password: password,
+                archiveCheckpoint: durableArchiveSyncCheckpoint,
+                mamCheckpoints: mamCheckpoints
+            )
+        } catch {
+            errorMessage = error.localizedDescription
+        }
     }
 
     func reconnect() async {

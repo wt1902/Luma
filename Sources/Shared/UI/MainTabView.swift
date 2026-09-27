@@ -157,7 +157,20 @@ private struct ChatsTab: View {
             SortDescriptor(\Conversation.lastActivity, order: .reverse)
         ]
     )
-    private var conversations: [Conversation]
+    private var storedConversations: [Conversation]
+
+    private var conversations: [AccountConversation] {
+        let source = model.conversations.isEmpty ? storedConversations : model.conversations
+        guard let account = model.account else {
+            return source.map {
+                AccountConversation(
+                    account: AccountConfiguration(jid: "preview@example.org"),
+                    conversation: $0
+                )
+            }
+        }
+        return source.map { AccountConversation(account: account, conversation: $0) }
+    }
 
     var body: some View {
         NavigationStack {
@@ -223,7 +236,7 @@ private struct ChatsTab: View {
 
     }
 
-    private var filteredConversations: [Conversation] {
+    private var filteredConversations: [AccountConversation] {
         let source =
             searchText.isEmpty
             ? conversations : conversations.filter(matchesSearch)
@@ -232,21 +245,37 @@ private struct ChatsTab: View {
 
     private var chatList: some View {
         List {
-            ForEach(filteredConversations) { conversation in
+            ForEach(filteredConversations) { item in
+                let conversation = item.conversation
                 NavigationLink {
                     ChatView(model: model, conversation: conversation)
-                        .id(conversation.jid)
+                        .id(item.id)
                         .onAppear {
-                            model.selectConversation(id: conversation.jid)
+                            if item.account.normalizedJID != model.account?.normalizedJID {
+                                Task {
+                                    await model.switchAccount(to: item.account)
+                                    model.selectConversation(id: conversation.jid)
+                                }
+                            } else {
+                                model.selectConversation(id: conversation.jid)
+                            }
                         }
                 } label: {
-                    ConversationRow(
-                        conversation: conversation,
-                        imageData: model.avatarData(for: conversation.jid),
-                        isEncrypted: model.encryptionEnabled(
-                            for: conversation.jid
+                    VStack(alignment: .leading, spacing: 2) {
+                        ConversationRow(
+                            conversation: conversation,
+                            imageData: model.avatarData(for: conversation.jid),
+                            isEncrypted: model.encryptionEnabled(
+                                for: conversation.jid
+                            )
                         )
-                    )
+                        if model.accounts.count > 1 {
+                            Text(item.account.normalizedJID)
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                                .padding(.leading, 52)
+                        }
+                    }
                 }
                 .listRowInsets(
                     EdgeInsets(top: 6, leading: 12, bottom: 6, trailing: 12)
@@ -279,9 +308,11 @@ private struct ChatsTab: View {
         }
     }
 
-    private func conversationSort(_ lhs: Conversation, _ rhs: Conversation)
+    private func conversationSort(_ lhs: AccountConversation, _ rhs: AccountConversation)
         -> Bool
     {
+        let lhs = lhs.conversation
+        let rhs = rhs.conversation
         if lhs.isPinned != rhs.isPinned { return lhs.isPinned }
         if lhs.lastActivity != rhs.lastActivity {
             return lhs.lastActivity > rhs.lastActivity
@@ -290,9 +321,11 @@ private struct ChatsTab: View {
             == .orderedAscending
     }
 
-    private func matchesSearch(_ conversation: Conversation) -> Bool {
-        conversation.displayName.localizedCaseInsensitiveContains(searchText)
+    private func matchesSearch(_ item: AccountConversation) -> Bool {
+        let conversation = item.conversation
+        return conversation.displayName.localizedCaseInsensitiveContains(searchText)
             || conversation.jid.localizedCaseInsensitiveContains(searchText)
+            || item.account.normalizedJID.localizedCaseInsensitiveContains(searchText)
     }
 }
 
@@ -664,6 +697,19 @@ private struct ContactRow: View {
         )
         private var conversations: [Conversation]
 
+        private var chatItems: [AccountConversation] {
+            let source = model.conversations.isEmpty ? conversations : model.conversations
+            guard let account = model.account else {
+                return source.map {
+                    AccountConversation(
+                        account: AccountConfiguration(jid: "preview@example.org"),
+                        conversation: $0
+                    )
+                }
+            }
+            return source.map { AccountConversation(account: account, conversation: $0) }
+        }
+
         var body: some View {
             NavigationSplitView {
                 sidebar
@@ -822,13 +868,14 @@ private struct ContactRow: View {
 
         @ViewBuilder
         private var chatRows: some View {
-            ForEach(filteredChats) { conversation in
+            ForEach(filteredChats) { item in
+                let conversation = item.conversation
                 ConversationRow(
                     conversation: conversation,
                     imageData: model.avatarData(for: conversation.jid),
                     isEncrypted: model.encryptionEnabled(for: conversation.jid)
                 )
-                .tag(conversation.jid)
+                .tag(item.id)
                 .contextMenu {
                     if conversation.isGroup {
                         Button("Удалить", role: .destructive) {
@@ -904,7 +951,15 @@ private struct ContactRow: View {
                 ChatView(model: model, conversation: conversation)
                     .id(conversation.jid)
                     .onAppear {
-                        model.selectConversation(id: conversation.jid)
+                        if let item = chatItems.first(where: { $0.id == selectedJID }),
+                           item.account.normalizedJID != model.account?.normalizedJID {
+                            Task {
+                                await model.switchAccount(to: item.account)
+                                model.selectConversation(id: conversation.jid)
+                            }
+                        } else {
+                            model.selectConversation(id: conversation.jid)
+                        }
                     }
             } else {
                 ContentUnavailableView(
@@ -934,37 +989,39 @@ private struct ContactRow: View {
                 else {
                     return nil
                 }
-                return conversations.first(where: {
-                    $0.jid == message.conversationID
-                })
+                return chatItems.first(where: { $0.conversation.jid == message.conversationID })?.conversation
             }
-            return conversations.first(where: { $0.jid == selectedJID })
+            return chatItems.first(where: { $0.id == selectedJID || $0.conversation.jid == selectedJID })?.conversation
         }
 
         private var defaultConversation: Conversation? {
-            mode == .chats ? sortedChats.first : nil
+            mode == .chats ? sortedChats.first?.conversation : nil
         }
 
         // MARK: Filtering and sorting
 
-        private var sortedChats: [Conversation] {
-            conversations.sorted(by: conversationSort)
+        private var sortedChats: [AccountConversation] {
+            chatItems.sorted(by: conversationSort)
         }
 
-        private var filteredChats: [Conversation] {
+        private var filteredChats: [AccountConversation] {
             searchText.isEmpty ? sortedChats : sortedChats.filter(matchesChat)
         }
 
-        private func matchesChat(_ conversation: Conversation) -> Bool {
+        private func matchesChat(_ item: AccountConversation) -> Bool {
+            let conversation = item.conversation
             conversation.displayName.localizedCaseInsensitiveContains(
                 searchText
             )
                 || conversation.jid.localizedCaseInsensitiveContains(searchText)
+                || item.account.normalizedJID.localizedCaseInsensitiveContains(searchText)
         }
 
-        private func conversationSort(_ lhs: Conversation, _ rhs: Conversation)
+        private func conversationSort(_ lhs: AccountConversation, _ rhs: AccountConversation)
             -> Bool
         {
+            let lhs = lhs.conversation
+            let rhs = rhs.conversation
             if lhs.isPinned != rhs.isPinned { return lhs.isPinned }
             if lhs.lastActivity != rhs.lastActivity {
                 return lhs.lastActivity > rhs.lastActivity
@@ -980,14 +1037,14 @@ private struct ContactRow: View {
                 .filter {
                     !$0.isGroup && model.rosterContactJIDs.contains($0.jid)
                 }
-                .filter { searchText.isEmpty || matchesChat($0) }
+                .filter { searchText.isEmpty || matchesChat(AccountConversation(account: model.account ?? AccountConfiguration(jid: "preview@example.org"), conversation: $0)) }
                 .sorted(by: contactSort)
         }
 
         private var filteredGroups: [Conversation] {
             conversations
                 .filter { $0.isGroup }
-                .filter { searchText.isEmpty || matchesChat($0) }
+                .filter { searchText.isEmpty || matchesChat(AccountConversation(account: model.account ?? AccountConfiguration(jid: "preview@example.org"), conversation: $0)) }
                 .sorted(by: contactSort)
         }
 
@@ -1018,13 +1075,13 @@ private struct ContactRow: View {
             selectedJID = nil
             searchText = ""
             if newMode == .chats {
-                selectedJID = sortedChats.first?.jid
+                selectedJID = sortedChats.first?.id
             }
         }
 
         private func ensureSelection() {
             if mode == .chats, selectedJID == nil {
-                selectedJID = sortedChats.first?.jid
+                selectedJID = sortedChats.first?.id
             }
         }
     }

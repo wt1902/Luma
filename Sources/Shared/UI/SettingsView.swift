@@ -12,6 +12,7 @@ struct SettingsView: View {
     @State private var forgetHistory = false
     @State private var avatarItem: PhotosPickerItem?
     @State private var passcodeSheetMode: AppLockPasscodeSheet.Mode?
+    @State private var showingAddAccount = false
 
     var body: some View {
         #if os(iOS)
@@ -19,6 +20,7 @@ struct SettingsView: View {
                 Form {
                     formcontent()
                 }
+                .sheet(isPresented: $showingAddAccount) { LoginView(model: model) }
                 .navigationTitle("")
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
@@ -34,13 +36,36 @@ struct SettingsView: View {
                 }
             }
         #else
-            formcontent()
+            formcontent().sheet(isPresented: $showingAddAccount) { LoginView(model: model) }
         #endif
     }
 
     @ViewBuilder
     private func formcontent() -> some View {
         if let account = model.account {
+            Section("Аккаунты") {
+                ForEach(model.accounts) { configured in
+                    Button {
+                        Task { await model.switchAccount(to: configured) }
+                    } label: {
+                        HStack {
+                            Image(systemName: configured.id == account.id ? "checkmark.circle.fill" : "person.circle")
+                                .foregroundStyle(configured.id == account.id ? .green : .secondary)
+                            VStack(alignment: .leading) {
+                                Text(configured.displayName.isEmpty ? configured.normalizedJID : configured.displayName)
+                                if !configured.displayName.isEmpty { Text(configured.normalizedJID).font(.caption).foregroundStyle(.secondary) }
+                            }
+                            Spacer()
+                        }
+                    }
+                    .buttonStyle(.plain)
+                }
+                Button {
+                    showingAddAccount = true
+                } label: {
+                    Label("Добавить аккаунт", systemImage: "person.badge.plus")
+                }
+            }
             Section("Профиль") {
                 HStack(spacing: 14) {
                     AvatarView(

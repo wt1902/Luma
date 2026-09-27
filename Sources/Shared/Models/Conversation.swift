@@ -78,6 +78,15 @@ final class Conversation {
     }
 }
 
+/// A row in the cross-account inbox. JID alone is not a stable identity when
+/// two logged-in accounts have the same contact or a self-chat.
+struct AccountConversation: Identifiable {
+    let account: AccountConfiguration
+    let conversation: Conversation
+
+    var id: String { "\(account.normalizedJID)|\(conversation.jid)" }
+}
+
 private extension String {
     var nilIfBlank: String? {
         trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : self
