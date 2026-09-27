@@ -2,6 +2,7 @@ import SwiftUI
 
 struct LoginView: View {
     @ObservedObject var model: AppModel
+    @Environment(\.dismiss) private var dismiss
     @State private var jid = ""
     @State private var password = ""
     @State private var passwordVisible = false
@@ -201,6 +202,13 @@ struct LoginView: View {
             usesDirectTLS: directTLS
         )
         await model.signIn(account: account, password: password)
+
+        // When LoginView is presented from Settings, close the sheet only
+        // after AppModel has completed a successful sign-in. On failure the
+        // model clears the active account, so the form remains available for
+        // correcting the credentials.
+        guard model.account?.normalizedJID == account.normalizedJID else { return }
+        dismiss()
     }
 }
 

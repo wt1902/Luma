@@ -1765,7 +1765,6 @@
 		};
 		371134B6F3E284082E28FE08 /* MartinOMEMO */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = 3B2A3CB97916A28030D0A4E0 /* XCLocalSwiftPackageReference "ThirdParty/MartinOMEMO" */;
 			productName = MartinOMEMO;
 		};
 		4BD4324EE01A6DD46EBE7FDA /* Martin */ = {
@@ -1780,7 +1779,6 @@
 		};
 		7A670E49149C9C7E13F0A6A2 /* MartinOMEMO */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = 3B2A3CB97916A28030D0A4E0 /* XCLocalSwiftPackageReference "ThirdParty/MartinOMEMO" */;
 			productName = MartinOMEMO;
 		};
 		A99B4C1B1459E1C34F214164 /* OpenSSL */ = {
