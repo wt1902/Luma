@@ -60,7 +60,6 @@ targets:
       - package: WebRTC
       - package: OpenSSL
  #     - package: SwiftChat
-      - target: LumaWatch
     info:
       path: Config/Luma-Info.plist
       properties:

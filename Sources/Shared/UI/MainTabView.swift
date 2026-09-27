@@ -1010,7 +1010,7 @@ private struct ContactRow: View {
 
         private func matchesChat(_ item: AccountConversation) -> Bool {
             let conversation = item.conversation
-            conversation.displayName.localizedCaseInsensitiveContains(
+            return conversation.displayName.localizedCaseInsensitiveContains(
                 searchText
             )
                 || conversation.jid.localizedCaseInsensitiveContains(searchText)

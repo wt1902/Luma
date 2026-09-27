@@ -140,7 +140,6 @@
 		6AB86E72201EB1A61898AD5F /* InlineVideoPlayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8C81B9255E9886FB86E0785 /* InlineVideoPlayer.swift */; };
 		6B0B8F3CAC1E5854C6F81E70 /* AccountConfigurationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 101587DDD2BB1B2C2073B926 /* AccountConfigurationTests.swift */; };
 		6B311EF7CF11B52E75D929F0 /* WebRTC in Frameworks */ = {isa = PBXBuildFile; productRef = 2A745A82DD6F34F0CB46B52B /* WebRTC */; };
-		6BB061F609EF40334C1DE979 /* LumaWatch.app in Embed Watch Content */ = {isa = PBXBuildFile; fileRef = 19D4E9404712E8643E31CB93 /* LumaWatch.app */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		6DC36AA33268FC6457FADAE2 /* BubbleShapes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0386C2687C1C60EC734FDBB0 /* BubbleShapes.swift */; };
 		6FB79BEEEF151D297F4EBB33 /* CallView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9B11FED2D58621C071C3AD14 /* CallView.swift */; };
 		6FCF6A4EFF8AE1FBFC2D81E1 /* ChatMediaImageCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = A438A50BC08940CA1410B4FA /* ChatMediaImageCache.swift */; };
@@ -298,13 +297,6 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
-		0722750D38A3B60127F87761 /* PBXContainerItemProxy */ = {
-			isa = PBXContainerItemProxy;
-			containerPortal = AACE5AD3943208FFB6B19277 /* Project object */;
-			proxyType = 1;
-			remoteGlobalIDString = BAB78463D7DE07A8F7B3D27D;
-			remoteInfo = LumaWatch;
-		};
 		277A193FE4C68A777257EF0D /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = AACE5AD3943208FFB6B19277 /* Project object */;
@@ -320,20 +312,6 @@
 			remoteInfo = Luma;
 		};
 /* End PBXContainerItemProxy section */
-
-/* Begin PBXCopyFilesBuildPhase section */
-		8C792A6B9B9150263A7D975B /* Embed Watch Content */ = {
-			isa = PBXCopyFilesBuildPhase;
-			buildActionMask = 2147483647;
-			dstPath = "$(CONTENTS_FOLDER_PATH)/Watch";
-			dstSubfolderSpec = 16;
-			files = (
-				6BB061F609EF40334C1DE979 /* LumaWatch.app in Embed Watch Content */,
-			);
-			name = "Embed Watch Content";
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-/* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
 		0142FF4A1B05C373DAB4CDBE /* VideoNoteCaptureView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoNoteCaptureView.swift; sourceTree = "<group>"; };
@@ -852,12 +830,10 @@
 				71162CE529E90DAEDA4BB5A5 /* Sources */,
 				988CDDC80A2A68B4C03DF20F /* Resources */,
 				94D6F6F04126826503BA1E53 /* Frameworks */,
-				8C792A6B9B9150263A7D975B /* Embed Watch Content */,
 			);
 			buildRules = (
 			);
 			dependencies = (
-				41772D492E3D837DE18E4556 /* PBXTargetDependency */,
 			);
 			name = Luma;
 			packageProductDependencies = (
@@ -1341,11 +1317,6 @@
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
-		41772D492E3D837DE18E4556 /* PBXTargetDependency */ = {
-			isa = PBXTargetDependency;
-			target = BAB78463D7DE07A8F7B3D27D /* LumaWatch */;
-			targetProxy = 0722750D38A3B60127F87761 /* PBXContainerItemProxy */;
-		};
 		451A9C42B8C63659ECBC26D9 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
 			target = 0565F6C7DA26F0482928704E /* Luma */;
@@ -1794,6 +1765,7 @@
 		};
 		371134B6F3E284082E28FE08 /* MartinOMEMO */ = {
 			isa = XCSwiftPackageProductDependency;
+			package = 3B2A3CB97916A28030D0A4E0 /* XCLocalSwiftPackageReference "ThirdParty/MartinOMEMO" */;
 			productName = MartinOMEMO;
 		};
 		4BD4324EE01A6DD46EBE7FDA /* Martin */ = {
@@ -1808,6 +1780,7 @@
 		};
 		7A670E49149C9C7E13F0A6A2 /* MartinOMEMO */ = {
 			isa = XCSwiftPackageProductDependency;
+			package = 3B2A3CB97916A28030D0A4E0 /* XCLocalSwiftPackageReference "ThirdParty/MartinOMEMO" */;
 			productName = MartinOMEMO;
 		};
 		A99B4C1B1459E1C34F214164 /* OpenSSL */ = {
