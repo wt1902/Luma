@@ -2,8 +2,8 @@ import Combine
 import Foundation
 @preconcurrency import Martin
 @preconcurrency import MartinOMEMO
-import os
 import WebRTC
+import os
 
 private struct BufferedArchiveStanza {
     let queryID: String
@@ -34,16 +34,16 @@ private final class ArchiveStanzaInbox: @unchecked Sendable {
         var overflowed = false
         var rejectedSource = false
     }
-    
+
     private let lock = NSLock()
     private let maximumCount: Int
-//    private var activeQueryID: String?
-//    private var allowedSources: Set<String> = []
-//    private var stanzas: [BufferedArchiveStanza] = []
-//    private var overflowed = false
-//    private var rejectedSource = false
+    //    private var activeQueryID: String?
+    //    private var allowedSources: Set<String> = []
+    //    private var stanzas: [BufferedArchiveStanza] = []
+    //    private var overflowed = false
+    //    private var rejectedSource = false
     private var states: [String: State] = [:]
-    
+
     init(maximumCount: Int) {
         self.maximumCount = maximumCount
     }
@@ -51,11 +51,11 @@ private final class ArchiveStanzaInbox: @unchecked Sendable {
     func begin(queryID: String, allowedSources: Set<String>) {
         lock.lock()
         defer { lock.unlock() }
-//        activeQueryID = queryID
-//        self.allowedSources = Set(allowedSources.map { $0.lowercased() })
-//        stanzas.removeAll(keepingCapacity: true)
-//        overflowed = false
-//        rejectedSource = false
+        //        activeQueryID = queryID
+        //        self.allowedSources = Set(allowedSources.map { $0.lowercased() })
+        //        stanzas.removeAll(keepingCapacity: true)
+        //        overflowed = false
+        //        rejectedSource = false
         states[queryID] = State(
             allowedSources: Set(allowedSources.map { $0.lowercased() })
         )
@@ -70,23 +70,23 @@ private final class ArchiveStanzaInbox: @unchecked Sendable {
     ) {
         lock.lock()
         defer { lock.unlock() }
-//        guard activeQueryID == queryID else { return }
-//        guard allowedSources.contains(source.stringValue.lowercased()) else {
-//            rejectedSource = true
+        //        guard activeQueryID == queryID else { return }
+        //        guard allowedSources.contains(source.stringValue.lowercased()) else {
+        //            rejectedSource = true
         guard var state = states[queryID] else { return }
         guard state.allowedSources.contains(source.stringValue.lowercased()) else {
             state.rejectedSource = true
             states[queryID] = state
             return
         }
-//        guard stanzas.count < maximumCount else {
-//            overflowed = true
+        //        guard stanzas.count < maximumCount else {
+        //            overflowed = true
         guard state.stanzas.count < maximumCount else {
             state.overflowed = true
             states[queryID] = state
             return
         }
-//        stanzas.append(
+        //        stanzas.append(
         state.stanzas.append(
             BufferedArchiveStanza(
                 queryID: queryID,
@@ -94,28 +94,28 @@ private final class ArchiveStanzaInbox: @unchecked Sendable {
                 timestamp: timestamp,
                 archiveID: archiveID
             ))
-//        print("MAM source: \(source), allowed: \(allowedSources)")
+        //        print("MAM source: \(source), allowed: \(allowedSources)")
         states[queryID] = state
     }
 
     func take(queryID: String) -> BufferedArchivePage {
         lock.lock()
         defer { lock.unlock() }
-//        guard activeQueryID == queryID else {
+        //        guard activeQueryID == queryID else {
         guard let state = states.removeValue(forKey: queryID) else {
             return BufferedArchivePage(stanzas: [], overflowed: false, rejectedSource: false)
         }
-//        let page = BufferedArchivePage(
-//            stanzas: stanzas,
-//            overflowed: overflowed,
-//            rejectedSource: rejectedSource
-//        )
-//        activeQueryID = nil
-//        allowedSources.removeAll(keepingCapacity: true)
-//        stanzas.removeAll(keepingCapacity: true)
-//        overflowed = false
-//        rejectedSource = false
-//        return page
+        //        let page = BufferedArchivePage(
+        //            stanzas: stanzas,
+        //            overflowed: overflowed,
+        //            rejectedSource: rejectedSource
+        //        )
+        //        activeQueryID = nil
+        //        allowedSources.removeAll(keepingCapacity: true)
+        //        stanzas.removeAll(keepingCapacity: true)
+        //        overflowed = false
+        //        rejectedSource = false
+        //        return page
         return BufferedArchivePage(
             stanzas: state.stanzas,
             overflowed: state.overflowed,
@@ -126,12 +126,12 @@ private final class ArchiveStanzaInbox: @unchecked Sendable {
     func cancel(queryID: String? = nil) {
         lock.lock()
         defer { lock.unlock() }
-//        if let queryID, activeQueryID != queryID { return }
-//        activeQueryID = nil
-//        allowedSources.removeAll(keepingCapacity: true)
-//        stanzas.removeAll(keepingCapacity: true)
-//        overflowed = false
-//        rejectedSource = false
+        //        if let queryID, activeQueryID != queryID { return }
+        //        activeQueryID = nil
+        //        allowedSources.removeAll(keepingCapacity: true)
+        //        stanzas.removeAll(keepingCapacity: true)
+        //        overflowed = false
+        //        rejectedSource = false
         if let queryID {
             states.removeValue(forKey: queryID)
         } else {
@@ -714,7 +714,7 @@ final class XMPPService {
         }
         observe(room: room)
         enqueueMUCCatchup(roomJID: room.jid)
-        
+
         eventHandler?(
             .roomState(
                 RoomStateEnvelope(
@@ -815,7 +815,9 @@ final class XMPPService {
         message.addChild(CallHistorySync.payloadElement(entry: entry))
         client.context.writer.write(message, writeCompleted: nil)
         Logger(subsystem: "Luma", category: "call-sync")
-            .info("sent call-history id=\(entry.id) peer=\(entry.peerJID) status=\(entry.outcome.rawValue)")
+            .info(
+                "sent call-history id=\(entry.id) peer=\(entry.peerJID) status=\(entry.outcome.rawValue)"
+            )
     }
 
     /// Sends a `<read-marker/>` service message to the user's own bare JID
@@ -837,7 +839,9 @@ final class XMPPService {
         message.addChild(ReadStateSync.payloadElement(marker: marker))
         client.context.writer.write(message, writeCompleted: nil)
         Logger(subsystem: "Luma", category: "read-sync")
-            .info("sent read-marker id=\(marker.id) message=\(marker.messageID) conversation=\(marker.conversationJID)")
+            .info(
+                "sent read-marker id=\(marker.id) message=\(marker.messageID) conversation=\(marker.conversationJID)"
+            )
     }
 
     /// Sends an XEP-0333 `<displayed/>` chat marker so the peer's client can
@@ -873,7 +877,6 @@ final class XMPPService {
         case .answeredElsewhere: return "\(kind) принят на другом устройстве"
         }
     }
-
 
     func sendText(
         _ text: String,
@@ -930,7 +933,8 @@ final class XMPPService {
                 // not cached yet.
                 if let omemo2 = client.moduleOrNil(.omemo2),
                     omemo2.isReady,
-                    await Self.allRecipientsPublishOMEMO2(recipients, module: omemo2) {
+                    await Self.allRecipientsPublishOMEMO2(recipients, module: omemo2)
+                {
                     let encryptedMessage = try await encrypt(
                         message,
                         forGroupRecipients: recipients,
@@ -988,7 +992,8 @@ final class XMPPService {
             // legacy.
             if let omemo2 = client.moduleOrNil(.omemo2),
                 omemo2.isReady,
-                await !(omemo2.deviceIDs(for: peer, fetching: true) ?? []).isEmpty {
+                await !(omemo2.deviceIDs(for: peer, fetching: true) ?? []).isEmpty
+            {
                 let encryptedMessage = try await encrypt(message, using: omemo2)
                 try await chat.send(message: encryptedMessage.message)
                 return encryptedMessage.fingerprint
@@ -1004,7 +1009,7 @@ final class XMPPService {
             return nil
         }
     }
-    
+
     /// OpenSSL version strings to their user-facing form ("TLSv1.3" →
     /// "TLS 1.3").
     private static func displayTLSVersion(_ version: String) -> String {
@@ -1056,7 +1061,7 @@ final class XMPPService {
             completion: completion
         )
     }
-    
+
     private func performOlderHistoryRequest(
         conversationJID: String,
         isGroup: Bool,
@@ -1072,9 +1077,10 @@ final class XMPPService {
             return
         }
 
-        let archive = isGroup
-        ? MAMArchiveKey.muc(conversationJID)
-        : MAMArchiveKey.account(client.userBareJid.stringValue)
+        let archive =
+            isGroup
+            ? MAMArchiveKey.muc(conversationJID)
+            : MAMArchiveKey.account(client.userBareJid.stringValue)
         // Only one interactive backward-history query is allowed at a time.
         // This is independent from the normal account/MUC catch-up query.
         if let previous = olderHistoryCompletion {
@@ -1106,9 +1112,10 @@ final class XMPPService {
             form.with = JID(conversationJID.lowercased())
         }
         let componentJID: JID? = isGroup ? JID(conversationJID.lowercased()) : nil
-        let rsm: RSM.Query = before.map {
-            RSM.Query(before: $0, max: archivePageSize)
-        } ?? RSM.Query(lastItems: archivePageSize)
+        let rsm: RSM.Query =
+            before.map {
+                RSM.Query(before: $0, max: archivePageSize)
+            } ?? RSM.Query(lastItems: archivePageSize)
 
         client.module(.mam).queryItems(
             version: version,
@@ -1153,7 +1160,8 @@ final class XMPPService {
                     self.interactiveHistoryMutations = []
                     for stanza in page.stanzas {
                         if stanza.message.type == .groupchat,
-                           let roomJID = stanza.message.from?.bareJid {
+                            let roomJID = stanza.message.from?.bareJid
+                        {
                             await self.handle(
                                 groupMessage: stanza.message,
                                 archivedRoomJID: roomJID,
@@ -1167,7 +1175,8 @@ final class XMPPService {
                                 timestamp: stanza.timestamp,
                                 archiveID: stanza.archiveID,
                                 isArchived: true,
-                                archivedPeerJID: isGroup ? nil : BareJID(conversationJID.lowercased())
+                                archivedPeerJID: isGroup
+                                    ? nil : BareJID(conversationJID.lowercased())
                             )
                         }
                     }
@@ -1207,12 +1216,13 @@ final class XMPPService {
     ) {
         olderHistoryTimeoutTask?.cancel()
         olderHistoryTimeoutTask = Task { @MainActor [weak self, weak client] in
-            try? await Task.sleep(nanoseconds: self?.olderHistoryQueryTimeoutNanoseconds ?? 15_000_000_000)
+            try? await Task.sleep(
+                nanoseconds: self?.olderHistoryQueryTimeoutNanoseconds ?? 15_000_000_000)
             guard !Task.isCancelled,
-                  let self,
-                  let client,
-                  self.client === client,
-                  self.olderHistoryQueryID == queryID
+                let self,
+                let client,
+                self.client === client,
+                self.olderHistoryQueryID == queryID
             else {
                 return
             }
@@ -1683,7 +1693,8 @@ final class XMPPService {
             // advertises them in separate stream-feature elements.
             saslMechanisms = advertisedSASLMechanisms
         } else {
-            saslMechanisms = streamFeaturesElement?
+            saslMechanisms =
+                streamFeaturesElement?
                 .findChild(name: "mechanisms", xmlns: "urn:ietf:params:xml:ns:xmpp-sasl")?
                 .children
                 .filter { $0.name == "mechanism" }
@@ -1698,7 +1709,8 @@ final class XMPPService {
         if !advertisedSASL2Mechanisms.isEmpty {
             sasl2ForDisplay = advertisedSASL2Mechanisms
         } else {
-            sasl2ForDisplay = streamFeaturesElement?
+            sasl2ForDisplay =
+                streamFeaturesElement?
                 .findChild(name: "authentication", xmlns: "urn:xmpp:sasl:2")?
                 .children
                 .filter { $0.name == "mechanism" }
@@ -1710,7 +1722,8 @@ final class XMPPService {
                 channelBindingStore.advertisedChannelBindingTypes
             ).sorted()
         } else {
-            channelBindingTypesForDisplay = streamFeaturesElement?
+            channelBindingTypesForDisplay =
+                streamFeaturesElement?
                 .findChild(name: "sasl-channel-binding", xmlns: "urn:xmpp:sasl-cb:0")?
                 .children
                 .filter { $0.name == "channel-binding" }
@@ -1721,18 +1734,23 @@ final class XMPPService {
         // server-first message.
         let downgradeProtectionForDisplay = channelBindingStore.isDowngradeProtectionDetected
 
-        let supportsCSI = streamFeaturesElement?
+        let supportsCSI =
+            streamFeaturesElement?
             .findChild(name: "csi", xmlns: "urn:xmpp:csi:0") != nil
-        let supportsRosterVersioning = streamFeaturesElement?
+        let supportsRosterVersioning =
+            streamFeaturesElement?
             .findChild(name: "ver", xmlns: "urn:xmpp:features:rosterver") != nil
-        let supportsRosterPreApproval = streamFeaturesElement?
+        let supportsRosterPreApproval =
+            streamFeaturesElement?
             .findChild(name: "sub", xmlns: "urn:xmpp:features:pre-approval") != nil
 
-        let uploadOnServer = server.features.contains("urn:xmpp:http:upload:0")
+        let uploadOnServer =
+            server.features.contains("urn:xmpp:http:upload:0")
             || server.features.contains("http://jabber.org/protocol/httpupload")
         let supportsHTTPUpload = uploadOnServer || uploadOnComponent
 
-        let stats = connectionStatsModule?.snapshot
+        let stats =
+            connectionStatsModule?.snapshot
             ?? LumaConnectionStatsModule.Snapshot(sent: 0, acknowledged: 0, received: 0)
 
         let tlsVersion = await currentTLSVersion()
@@ -1780,8 +1798,7 @@ final class XMPPService {
             saslMethods: saslMechanisms,
             sasl2Methods: sasl2ForDisplay,
             channelBindingTypes: channelBindingTypesForDisplay,
-            usedChannelBindingType:
-                (negotiatedSASLMechanism?.hasSuffix("-PLUS") == true)
+            usedChannelBindingType: (negotiatedSASLMechanism?.hasSuffix("-PLUS") == true)
                 ? channelBindingStore.preferredChannelBindingType
                 : nil,
             supportsSCRAMDowngradeProtection: downgradeProtectionForDisplay,
@@ -1928,7 +1945,7 @@ final class XMPPService {
         )
         _ = client.modulesManager.register(
             SoftwareVersionModule(
-                version: .init(name: "Luma", version: "0.10.6", os: Self.platformName))
+                version: .init(name: "Luma", version: "20261013.0", os: Self.platformName))
         )
         _ = client.modulesManager.register(PingModule())
         _ = client.modulesManager.register(ClientStateIndicationModule())
@@ -2026,7 +2043,7 @@ final class XMPPService {
             // (TLS 1.3 + STARTTLS + channel binding). Certificate trust is
             // still evaluated through the custom validator above.
             options.networkProcessorProviders = [
-                LumaTLSNetworkProcessorProvider(channelBindingStore: channelBindingStore),
+                LumaTLSNetworkProcessorProvider(channelBindingStore: channelBindingStore)
             ]
             if let host = account.manualHost {
                 let defaultPort = account.usesDirectTLS ? 5223 : 5222
@@ -2214,7 +2231,7 @@ final class XMPPService {
         }
         await handle(message: message, timestamp: timestamp, archiveID: nil)
     }
-    
+
     private func deliverOrDelayGroup(_ message: Message, room: RoomProtocol) async {
         let archive = MAMArchiveKey.muc(room.jid.stringValue)
         if activeMUCCatchup == archive {
@@ -2225,7 +2242,7 @@ final class XMPPService {
         }
         await handle(groupMessage: message, room: room)
     }
-    
+
     private func replayDelayedLive(for archive: MAMArchiveKey) async {
         let delayed = delayedLiveByArchive.removeValue(forKey: archive) ?? []
         for item in delayed {
@@ -2331,7 +2348,9 @@ final class XMPPService {
         // devices; they never become ordinary chat messages.
         if let sync = CallHistorySync.envelope(from: message) {
             Logger(subsystem: "Luma", category: "call-sync")
-                .info("received call-history id=\(sync.id) peer=\(sync.peerJID) status=\(sync.outcome.rawValue)")
+                .info(
+                    "received call-history id=\(sync.id) peer=\(sync.peerJID) status=\(sync.outcome.rawValue)"
+                )
             eventHandler?(.callHistorySync(sync))
             return
         }
@@ -2340,7 +2359,9 @@ final class XMPPService {
         // after reinstalls. They never become ordinary chat messages.
         if let marker = ReadStateSync.envelope(from: message) {
             Logger(subsystem: "Luma", category: "read-sync")
-                .info("received read-marker id=\(marker.id) message=\(marker.messageID) conversation=\(marker.conversationJID)")
+                .info(
+                    "received read-marker id=\(marker.id) message=\(marker.messageID) conversation=\(marker.conversationJID)"
+                )
             eventHandler?(.readState(marker))
             return
         }
@@ -2353,8 +2374,8 @@ final class XMPPService {
         let ownJID = client.userBareJid
         let outgoing = sender == ownJID
         // guard let peer = outgoing ? message.to?.bareJid : message.from?.bareJid else { return }
-//        let peer: BareJID?
-//        if outgoing {
+        //        let peer: BareJID?
+        //        if outgoing {
         let peer: BareJID?
         if isArchived, let archivedPeerJID {
             peer = archivedPeerJID
@@ -2368,21 +2389,21 @@ final class XMPPService {
         let security: ChatMessage.Security
         let fingerprint: String?
         let contentMessage: Message?
-        let decryptionResult = await (
-            Self.isOMEMO2Payload(message)
-                ? decodeOmemo2OffMain(
-                    message,
-                    from: sender,
-                    serverMsgId: archiveID,
-                    module: client.module(.omemo2)
-                )
-                : decodeOmemoOffMain(
-                    message,
-                    from: sender,
-                    serverMsgId: archiveID,
-                    module: client.module(.omemo)
-                )
-        )
+        let decryptionResult =
+            await
+            (Self.isOMEMO2Payload(message)
+            ? decodeOmemo2OffMain(
+                message,
+                from: sender,
+                serverMsgId: archiveID,
+                module: client.module(.omemo2)
+            )
+            : decodeOmemoOffMain(
+                message,
+                from: sender,
+                serverMsgId: archiveID,
+                module: client.module(.omemo)
+            ))
         switch decryptionResult {
         case .successMessage(let decodedMessage, let value):
             security = .omemo
@@ -2606,24 +2627,27 @@ final class XMPPService {
         else { return }
 
         let nickname = from.resource ?? "Участник"
-//        let outgoing = nickname == room.nickname
-//        let roomJID = room.jid.stringValue.lowercased()
-        let disclosedSender = Self.originalSenderJID(in: message)
-        ?? XMucUserElement.extract(from: message)?.jid?.bareJid
-        let outgoing = room.map { nickname == $0.nickname }
-        ?? (disclosedSender == client.userBareJid)
+        //        let outgoing = nickname == room.nickname
+        //        let roomJID = room.jid.stringValue.lowercased()
+        let disclosedSender =
+            Self.originalSenderJID(in: message)
+            ?? XMucUserElement.extract(from: message)?.jid?.bareJid
+        let outgoing =
+            room.map { nickname == $0.nickname }
+            ?? (disclosedSender == client.userBareJid)
         let roomJID = roomBareJID.stringValue.lowercased()
         // In a MUC the author address used by XEP-0461 is the full occupant
         // JID (room@service/nickname), not the participant's disclosed real JID.
         let senderJID = from.stringValue
-//        let stanzaID = Self.roomStanzaID(in: message, roomJID: room.jid)
+        //        let stanzaID = Self.roomStanzaID(in: message, roomJID: room.jid)
         let stanzaID = Self.roomStanzaID(in: message, roomJID: roomBareJID) ?? archiveID
         let id =
             outgoing
             ? (message.originId ?? message.id ?? stanzaID ?? UUID().uuidString)
             : (stanzaID ?? message.originId ?? message.id ?? UUID().uuidString)
 
-        let encrypted = message.firstChild(name: "encrypted", xmlns: OMEMOModule.XMLNS) != nil
+        let encrypted =
+            message.firstChild(name: "encrypted", xmlns: OMEMOModule.XMLNS) != nil
             || message.firstChild(name: "encrypted", xmlns: LumaOMEMO2Module.XMLNS) != nil
         let realSender: BareJID?
         if outgoing {
@@ -2646,21 +2670,21 @@ final class XMPPService {
         let fingerprint: String?
         let contentMessage: Message?
         if let realSender {
-            let decryptionResult = await (
-                Self.isOMEMO2Payload(message)
-                    ? decodeOmemo2OffMain(
-                        message,
-                        from: realSender,
-                        serverMsgId: stanzaID,
-                        module: client.module(.omemo2)
-                    )
-                    : decodeOmemoOffMain(
-                        message,
-                        from: realSender,
-                        serverMsgId: stanzaID,
-                        module: client.module(.omemo)
-                    )
-            )
+            let decryptionResult =
+                await
+                (Self.isOMEMO2Payload(message)
+                ? decodeOmemo2OffMain(
+                    message,
+                    from: realSender,
+                    serverMsgId: stanzaID,
+                    module: client.module(.omemo2)
+                )
+                : decodeOmemoOffMain(
+                    message,
+                    from: realSender,
+                    serverMsgId: stanzaID,
+                    module: client.module(.omemo)
+                ))
             switch decryptionResult {
             case .successMessage(let decodedMessage, let value):
                 security = .omemo
@@ -2718,7 +2742,7 @@ final class XMPPService {
         }
 
         let payload = contentMessage ?? message
-//        if let state = Self.chatTypingState(payload.chatState ?? message.chatState) {
+        //        if let state = Self.chatTypingState(payload.chatState ?? message.chatState) {
         if !isArchived, let state = Self.chatTypingState(payload.chatState ?? message.chatState) {
             knownChatStatePeers.insert(roomJID)
             if !outgoing {
@@ -2752,12 +2776,12 @@ final class XMPPService {
                         guard child.name == "reaction" else { return nil }
                         return child.value
                     },
-//                    timestamp: message.delay?.stamp ?? Date(),
+                    //                    timestamp: message.delay?.stamp ?? Date(),
                     timestamp: archivedTimestamp ?? message.delay?.stamp ?? Date(),
                     isOutgoing: outgoing,
                     isGroupMessage: true
                 ),
-//                isArchived: false
+                //                isArchived: false
                 isArchived: isArchived
             )
             return
@@ -2810,39 +2834,39 @@ final class XMPPService {
             attachmentURL == nil
             ? visibleBody
             : Self.displayBody(kind: kind, filename: transportFilename ?? "Вложение")
-//        eventHandler?(
+        //        eventHandler?(
         emitMessage(
-//            .message(
-                MessageEnvelope(
-                    id: id,
-//                    peerJID: room.jid.stringValue,
-                    peerJID: roomBareJID.stringValue,
-                    senderJID: senderJID,
-                    body: displayBody,
-//                    timestamp: message.delay?.stamp ?? Date(),
-                    timestamp: archivedTimestamp ?? message.delay?.stamp ?? Date(),
-                    isOutgoing: outgoing,
-                    security: security,
-                    kind: kind,
-                    remoteAttachmentURL: attachmentURL,
-                    localFilename: transportFilename,
-                    mimeType: inferred?.mimeType,
-                    duration: inferred?.duration,
-                    byteCount: nil,
-                    fingerprint: fingerprint,
-                    correctionTargetID: payload.lastMessageCorrectionId
-                        ?? message.lastMessageCorrectionId,
-                    replyToID: reply?.getAttribute("id"),
-                    replyToJID: reply?.getAttribute("to"),
-                    replyPreview: parsedReply.preview,
-                    originID: message.originId,
-                    stanzaID: stanzaID,
-                    senderDisplayName: nickname,
-                    isGroupMessage: true,
-                    //                    isArchived: false
-                    //                )))
-                    isArchived: isArchived
-                ), isArchived: isArchived)
+            //            .message(
+            MessageEnvelope(
+                id: id,
+                //                    peerJID: room.jid.stringValue,
+                peerJID: roomBareJID.stringValue,
+                senderJID: senderJID,
+                body: displayBody,
+                //                    timestamp: message.delay?.stamp ?? Date(),
+                timestamp: archivedTimestamp ?? message.delay?.stamp ?? Date(),
+                isOutgoing: outgoing,
+                security: security,
+                kind: kind,
+                remoteAttachmentURL: attachmentURL,
+                localFilename: transportFilename,
+                mimeType: inferred?.mimeType,
+                duration: inferred?.duration,
+                byteCount: nil,
+                fingerprint: fingerprint,
+                correctionTargetID: payload.lastMessageCorrectionId
+                    ?? message.lastMessageCorrectionId,
+                replyToID: reply?.getAttribute("id"),
+                replyToJID: reply?.getAttribute("to"),
+                replyPreview: parsedReply.preview,
+                originID: message.originId,
+                stanzaID: stanzaID,
+                senderDisplayName: nickname,
+                isGroupMessage: true,
+                //                    isArchived: false
+                //                )))
+                isArchived: isArchived
+            ), isArchived: isArchived)
     }
 
     private func observe(room: RoomProtocol) {
@@ -3074,7 +3098,7 @@ final class XMPPService {
         fallback.addChild(bodyRange)
         message.addChild(fallback)
     }
-    
+
     private func addOriginID(_ id: String, to message: Message) {
         guard message.originId == nil else { return }
         let origin = Element(name: "origin-id", xmlns: Self.stanzaIDNamespace)
@@ -3456,7 +3480,7 @@ final class XMPPService {
         }
         return encryptedMessage
     }
-    
+
     /// Single Martin-specific MAM entry point. Martin 3.2.4 supports
     /// `componentJid:` and writes it to IQ `to`, which is required for MUC MAM.
     private func queryMAM(
@@ -3465,7 +3489,8 @@ final class XMPPService {
         start: Date?,
         queryID: String,
         rsm: RSM.Query?,
-        completion: @escaping (Result<MessageArchiveManagementModule.QueryResult, XMPPError>) -> Void
+        completion:
+            @escaping (Result<MessageArchiveManagementModule.QueryResult, XMPPError>) -> Void
     ) {
         let componentJID: JID?
         switch archive.kind {
@@ -3474,7 +3499,7 @@ final class XMPPService {
         case .muc:
             componentJID = JID(archive.jid)
         }
-        
+
         client.module(.mam).queryItems(
             componentJid: componentJID,
             start: start,
@@ -3483,7 +3508,7 @@ final class XMPPService {
             completionHandler: completion
         )
     }
-    
+
     private func allowedMAMSources(
         for archive: MAMArchiveKey,
         client: XMPPClient
@@ -3560,26 +3585,28 @@ final class XMPPService {
             retry: 0
         )
     }
-    
+
     private func enqueueMUCCatchup(roomJID: BareJID) {
         let archive = MAMArchiveKey.muc(roomJID.stringValue)
         guard activeMUCCatchup != archive,
-              !pendingMUCCatchups.contains(archive) else { return }
+            !pendingMUCCatchups.contains(archive)
+        else { return }
         pendingMUCCatchups.append(archive)
         startNextMUCCatchupIfPossible()
     }
-    
+
     /// Keep this first version serialized with the account pass. It prevents
     /// archive mutations from different namespaces sharing the legacy batch.
     /// Patch 0007 makes live delivery archive-aware while catch-up runs.
     private func startNextMUCCatchupIfPossible() {
         guard activeMUCCatchup == nil,
-              !archiveSyncStarted,
-              let client,
-              client.state == .connected(),
-              !client.module(.mam).availableVersions.isEmpty,
-              !pendingMUCCatchups.isEmpty else { return }
-        
+            !archiveSyncStarted,
+            let client,
+            client.state == .connected(),
+            !client.module(.mam).availableVersions.isEmpty,
+            !pendingMUCCatchups.isEmpty
+        else { return }
+
         let archive = pendingMUCCatchups.removeFirst()
         activeMUCCatchup = archive
         mucCatchupHighWatermark = nil
@@ -3590,7 +3617,7 @@ final class XMPPService {
             client: client
         )
     }
-    
+
     private func queryMUCArchivePage(
         archive: MAMArchiveKey,
         after: String?,
@@ -3602,15 +3629,18 @@ final class XMPPService {
             queryID: queryID,
             allowedSources: allowedMAMSources(for: archive, client: client)
         )
-        
+
         let checkpoint = mamCheckpoints[archive]
-        let start = after == nil
-        ? checkpoint?.timestamp.addingTimeInterval(-ArchiveSyncRecoveryPolicy.incrementalOverlap)
-        : nil
-        let rsm = checkpoint == nil
-        ? RSM.Query(lastItems: archiveBootstrapMessageLimit)
-        : RSM.Query(after: after, max: archivePageSize)
-        
+        let start =
+            after == nil
+            ? checkpoint?.timestamp.addingTimeInterval(
+                -ArchiveSyncRecoveryPolicy.incrementalOverlap)
+            : nil
+        let rsm =
+            checkpoint == nil
+            ? RSM.Query(lastItems: archiveBootstrapMessageLimit)
+            : RSM.Query(after: after, max: archivePageSize)
+
         queryMAM(
             client: client,
             archive: archive,
@@ -3620,7 +3650,8 @@ final class XMPPService {
         ) { [weak self, weak client] result in
             DispatchQueue.main.async {
                 guard let self, let client,
-                      self.activeMUCCatchup == archive else { return }
+                    self.activeMUCCatchup == archive
+                else { return }
                 let page = self.archiveStanzaInbox.take(queryID: queryID)
                 guard !page.overflowed, !page.rejectedSource else {
                     self.finishMUCCatchup(archive: archive, succeeded: false)
@@ -3628,14 +3659,16 @@ final class XMPPService {
                 }
                 Task { @MainActor [weak self, weak client] in
                     guard let self, let client,
-                          self.activeMUCCatchup == archive else { return }
+                        self.activeMUCCatchup == archive
+                    else { return }
                     for stanza in page.stanzas {
                         self.mucCatchupHighWatermark = max(
                             self.mucCatchupHighWatermark ?? .distantPast,
                             stanza.timestamp
                         )
                         guard stanza.message.type == .groupchat,
-                              let roomJID = stanza.message.from?.bareJid else { continue }
+                            let roomJID = stanza.message.from?.bareJid
+                        else { continue }
                         await self.handle(
                             groupMessage: stanza.message,
                             archivedRoomJID: roomJID,
@@ -3652,8 +3685,9 @@ final class XMPPService {
                         // from the durable timestamp overlap, never loop
                         // cursor<->time.
                         if self.mamCheckpoints[archive]?.cursor != nil,
-                           self.mucCursorFallbackArchives.insert(archive).inserted,
-                           let old = self.mamCheckpoints[archive] {
+                            self.mucCursorFallbackArchives.insert(archive).inserted,
+                            let old = self.mamCheckpoints[archive]
+                        {
                             self.mamCheckpoints[archive] = MAMArchiveCheckpoint(
                                 timestamp: old.timestamp,
                                 cursor: nil
@@ -3679,7 +3713,7 @@ final class XMPPService {
             }
         }
     }
-    
+
     private func finishMUCCatchup(archive: MAMArchiveKey, succeeded: Bool) {
         defer {
             activeMUCCatchup = nil
@@ -3730,10 +3764,10 @@ final class XMPPService {
         let accountArchive = MAMArchiveKey.account(client.userBareJid.stringValue)
         archiveStanzaInbox.begin(
             queryID: queryID,
-//            allowedSources: [
-//                client.userBareJid.stringValue,
-//                client.userBareJid.domain,
-//            ]
+            //            allowedSources: [
+            //                client.userBareJid.stringValue,
+            //                client.userBareJid.domain,
+            //            ]
             allowedSources: allowedMAMSources(for: accountArchive, client: client)
         )
         scheduleArchiveQueryTimeout(client: client, queryID: queryID)
@@ -3748,7 +3782,7 @@ final class XMPPService {
             archiveIsBootstrapQuery
             ? RSM.Query(lastItems: archiveBootstrapMessageLimit)
             : RSM.Query(after: after, max: archivePageSize)
-//        client.module(.mam).queryItems(
+        //        client.module(.mam).queryItems(
         queryMAM(
             client: client,
             archive: accountArchive,
@@ -3836,14 +3870,14 @@ final class XMPPService {
                 //     isArchived: true
                 // )
                 if stanza.message.type == .groupchat,
-//                    let roomJID = stanza.message.from?.bareJid,
-//                    let room = client?.module(.muc).roomManager.room(for: client!, with: roomJID)
+                    //                    let roomJID = stanza.message.from?.bareJid,
+                    //                    let room = client?.module(.muc).roomManager.room(for: client!, with: roomJID)
                     let roomJID = stanza.message.from?.bareJid
                 {
                     // Some servers include MUC messages in the account MAM.
                     // Route them through the same group handler instead of
                     // dropping them in the direct-message handler.
-//                    handle(groupMessage: stanza.message, room: room)
+                    //                    handle(groupMessage: stanza.message, room: room)
                     await handle(
                         groupMessage: stanza.message,
                         archivedRoomJID: roomJID,
@@ -4249,7 +4283,7 @@ final class XMPPService {
         archiveStanzaInbox.cancel()
         guard let client else {
             archiveSyncStarted = false
-//            archiveStanzaInbox.cancel()
+            //            archiveStanzaInbox.cancel()
             archiveActiveQueryID = nil
             archiveStanzaBuffer.removeAll(keepingCapacity: false)
             archiveBufferOverflowed = false
@@ -4392,7 +4426,8 @@ final class XMPPService {
         // refreshing the captured state from them would wipe the screen to
         // "no methods / no channel binding". Only pre-auth features (those
         // carrying any SASL-related element) update the state.
-        let hasSASLElements = !mechanisms.isEmpty
+        let hasSASLElements =
+            !mechanisms.isEmpty
             || !sasl2Mechanisms.isEmpty
             || !channelBindingTypes.isEmpty
         if hasSASLElements {
@@ -4417,7 +4452,8 @@ final class XMPPService {
         }
         guard let activePassword, !activePassword.isEmpty else { return }
         guard mechanisms.contains(where: { $0.hasPrefix("SCRAM-") }) else { return }
-        guard case .password(let currentPassword, _, _) = client.connectionConfiguration.credentials,
+        guard
+            case .password(let currentPassword, _, _) = client.connectionConfiguration.credentials,
             let prepared = try? SASLprep.prepare(activePassword),
             prepared != currentPassword
         else { return }
