@@ -1,5 +1,40 @@
 import Foundation
 
+/// A MAM UID is only meaningful inside one archive. Account MAM and every MUC
+/// therefore get their own namespace and durable checkpoint.
+struct MAMArchiveKey: Codable, Hashable, Sendable {
+    enum Kind: String, Codable, Sendable {
+        case account
+        case muc
+    }
+
+    let kind: Kind
+    let jid: String
+
+    init(kind: Kind, jid: String) {
+        self.kind = kind
+        self.jid = jid.lowercased()
+    }
+
+    static func account(_ jid: String) -> Self {
+        Self(kind: .account, jid: jid)
+    }
+
+    static func muc(_ jid: String) -> Self {
+        Self(kind: .muc, jid: jid)
+    }
+}
+
+struct MAMArchiveCheckpoint: Codable, Equatable, Sendable {
+    let timestamp: Date
+    let cursor: String?
+
+    init(timestamp: Date, cursor: String? = nil) {
+        self.timestamp = timestamp
+        self.cursor = ArchiveSyncCheckpoint.normalizedCursor(cursor)
+    }
+}
+
 /// Durable MAM position. The archive UID is the primary synchronization
 /// anchor; the timestamp is retained as a compatibility fallback for legacy
 /// snapshots and servers that have expired an old UID.

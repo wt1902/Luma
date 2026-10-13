@@ -13,59 +13,87 @@ struct NewGroupView: View {
     @State private var isJoining = false
 
     var body: some View {
-        NavigationStack {
-            Form {
-                GroupBox {
-                    VStack(alignment: .leading, spacing: 12) {
-                        TextField("room@conference.example.org", text: $roomJID)
-                            .disableAutocorrection(true)
-                        TextField("Название (необязательно)", text: $name)
-                        TextField("Ваш псевдоним", text: $nickname)
-                    }
-                } label: {
-                    Text("Комната")
-                        .font(.headline)
+        #if os(iOS)
+            NavigationStack {
+                Form {
+                    formcontent()
                 }
-
-                GroupBox {
-                    VStack(alignment: .leading, spacing: 8) {
-                        TextField("alice@example.org, bob@example.org", text: $invitees, axis: .vertical)
-                            .lineLimit(2...5)
-                        Text("Укажите JID через запятую или с новой строки. Если комнаты ещё нет, Prosody создаст её с настройками по умолчанию.")
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
+                .navigationTitle("Новая группа")
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("Отмена") { dismiss() }
+                            .disabled(isJoining)
                     }
-                } label: {
-                    Text("Пригласить")
-                        .font(.headline)
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("Создать / войти") { join() }
+                            .fontWeight(.semibold)
+                            .disabled(!canJoin || isJoining)
+                    }
                 }
-
-                Label(
-                    "Новая комната настраивается как неанонимная и доступная участникам, чтобы поддерживать групповое OMEMO. Режим шифрования можно изменить в меню замка внутри чата.",
-                    systemImage: "lock.shield.fill"
-                )
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
+                .onAppear {
+                    if nickname.isEmpty {
+                        nickname = model.suggestedGroupNickname
+                    }
+                }
             }
-            .navigationTitle("Новая группа")
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
+        #else
+            List {
+                formcontent()
+                HStack {
                     Button("Отмена") { dismiss() }
                         .disabled(isJoining)
-                }
-                ToolbarItem(placement: .confirmationAction) {
+                        .buttonStyle(.glass)
+                        .tint(.secondary)
+                        .controlSize(.large)
+                    Spacer()
                     Button("Создать / войти") { join() }
                         .fontWeight(.semibold)
                         .disabled(!canJoin || isJoining)
+                        .buttonStyle(.glassProminent)
+                        .controlSize(.large)
                 }
             }
+            .navigationTitle("Новая группа")
             .onAppear {
                 if nickname.isEmpty { nickname = model.suggestedGroupNickname }
             }
+            .frame(minWidth: 480, minHeight: 330)
+        #endif
+    }
+
+    @ViewBuilder
+    private func formcontent() -> some View {
+        Section("Комната") {
+            TextField("room@conference.example.org", text: $roomJID)
+                .disableAutocorrection(true)
+                #if os(iOS)
+                    .keyboardType(.emailAddress)
+                #endif
+            TextField("Название (необязательно)", text: $name)
+            TextField("Ваш псевдоним", text: $nickname)
         }
-#if os(macOS)
-        .frame(minWidth: 480, minHeight: 470)
-#endif
+        Section("Пригласить") {
+            TextField(
+                "alice@example.org, bob@example.org",
+                text: $invitees,
+                axis: .vertical
+            )
+            .lineLimit(2...5)
+            #if os(iOS)
+                .keyboardType(.emailAddress)
+            #endif
+            Text(
+                "Укажите JID через запятую или с новой строки. Если комнаты ещё нет, Prosody создаст её с настройками по умолчанию."
+            )
+            .font(.footnote)
+            .foregroundStyle(.secondary)
+        }
+        Label(
+            "Новая комната настраивается как неанонимная и доступная участникам, чтобы поддерживать групповое OMEMO. Режим шифрования можно изменить в меню замка внутри чата.",
+            systemImage: "lock.shield.fill"
+        )
+        .font(.footnote)
+        .foregroundStyle(.secondary)
     }
 
     private var canJoin: Bool {
@@ -91,4 +119,8 @@ struct NewGroupView: View {
         invitees.components(separatedBy: CharacterSet(charactersIn: ",;\n \t"))
             .filter { !$0.isEmpty }
     }
+}
+
+#Preview {
+    NewGroupView(model: PreviewSupport.model)
 }

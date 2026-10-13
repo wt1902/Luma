@@ -11,6 +11,7 @@ struct GroupInfoView: View {
     @State private var invitees = ""
     @State private var isJoining = false
     @State private var isInviting = false
+    @State private var confirmingDeletion = false
 
     init(model: AppModel, conversation: Conversation) {
         self.model = model
@@ -69,6 +70,16 @@ struct GroupInfoView: View {
                 }
 
                 Section {
+                    Button(role: .destructive) {
+                        confirmingDeletion = true
+                    } label: {
+                        Label("Удалить чат", systemImage: "trash")
+                    }
+                } footer: {
+                    Text("Чат и его история будут удалены с этого устройства.")
+                }
+
+                Section {
                     Label(
                         model.encryptionEnabled(for: conversation.jid)
                             ? "Для комнаты включено OMEMO. Нужны неанонимный MUC и OMEMO-устройства у всех участников."
@@ -85,6 +96,15 @@ struct GroupInfoView: View {
                     Button("Готово") { dismiss() }
                 }
             }
+            .alert("Удалить групповой чат?", isPresented: $confirmingDeletion) {
+                Button("Удалить", role: .destructive) {
+                    model.deleteGroupChat(jid: conversation.jid)
+                    dismiss()
+                }
+                Button("Отмена", role: .cancel) {}
+            } message: {
+                Text("Чат и его история будут удалены с этого устройства. Luma выйдет из комнаты, если вы в ней.")
+            }
         }
 #if os(macOS)
         .frame(minWidth: 480, minHeight: 500)
@@ -92,7 +112,7 @@ struct GroupInfoView: View {
     }
 
     private var liveConversation: Conversation {
-        model.conversations.first(where: { $0.id == conversation.id }) ?? conversation
+        model.conversations.first(where: { $0.jid == conversation.jid }) ?? conversation
     }
 
     private var parsedInvitees: [String] {
@@ -118,4 +138,17 @@ struct GroupInfoView: View {
             isInviting = false
         }
     }
+}
+
+#Preview {
+    GroupInfoView(
+        model: PreviewSupport.model,
+        conversation: PreviewSupport.conversation(
+            jid: "team@conference.example.org",
+            displayName: "Команда Luma",
+            kind: .group,
+            isGroupJoined: true,
+            occupantCount: 7
+        )
+    )
 }

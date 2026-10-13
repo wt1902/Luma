@@ -10,7 +10,7 @@ final class ArchiveSyncRecoveryPolicyTests: XCTestCase {
         XCTAssertGreaterThan(ArchiveSyncRecoveryPolicy.queryTimeoutNanoseconds, 0)
         XCTAssertLessThanOrEqual(
             ArchiveSyncRecoveryPolicy.queryTimeoutNanoseconds,
-            15_000_000_000
+            20_000_000_000
         )
     }
 
@@ -24,6 +24,15 @@ final class ArchiveSyncRecoveryPolicyTests: XCTestCase {
 
     func testFailedPagesHaveAtMostOneAutomaticRetry() {
         XCTAssertEqual(ArchiveSyncRecoveryPolicy.pageRetryLimit, 1)
+    }
+
+    func testCatchUpRetryDelayAndCapAreBounded() {
+        XCTAssertGreaterThan(
+            ArchiveSyncRecoveryPolicy.retryAfterFailureDelayNanoseconds,
+            0
+        )
+        XCTAssertGreaterThan(ArchiveSyncRecoveryPolicy.maximumAutomaticRetries, 0)
+        XCTAssertLessThanOrEqual(ArchiveSyncRecoveryPolicy.maximumAutomaticRetries, 5)
     }
 
     func testCaptureResumeDelayLetsCameraReleaseResources() {

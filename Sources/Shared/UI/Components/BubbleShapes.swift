@@ -50,3 +50,27 @@ struct ReplyThreadBracket: Shape {
         return path
     }
 }
+
+#Preview("Кривая ответа") {
+    VStack(spacing: 24) {
+        ReplyThreadCurve(sourceDirection: .incoming)
+            .stroke(Color.blue, lineWidth: 2)
+            .frame(width: 90, height: 26)
+        ReplyThreadCurve(sourceDirection: .outgoing)
+            .stroke(Color.blue, lineWidth: 2)
+            .frame(width: 90, height: 26)
+    }
+    .padding()
+}
+
+#Preview("Скобка ветки") {
+    HStack(spacing: 40) {
+        ReplyThreadBracket(opensToTrailing: true)
+            .stroke(Color.blue, style: StrokeStyle(lineWidth: 3, lineCap: .round))
+            .frame(width: 38, height: 260)
+        ReplyThreadBracket(opensToTrailing: false)
+            .stroke(Color.blue, style: StrokeStyle(lineWidth: 3, lineCap: .round))
+            .frame(width: 38, height: 260)
+    }
+    .padding()
+}

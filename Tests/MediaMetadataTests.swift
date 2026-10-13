@@ -55,32 +55,4 @@ final class MediaMetadataTests: XCTestCase {
         XCTAssertFalse(photo.hasSuffix(".aesgcm"))
         XCTAssertFalse(voice.hasSuffix(".aesgcm"))
     }
-
-    func testLegacyMessageWithoutMediaMetadataStillDecodes() throws {
-        let message = ChatMessage(
-            conversationID: "bob@example.org",
-            senderJID: "alice@example.org",
-            body: "old attachment",
-            direction: .incoming,
-            delivery: .delivered,
-            security: .omemo,
-            kind: .attachment,
-            remoteAttachmentURL: "aesgcm://upload.example.org/file.aesgcm#key",
-            localFilename: "file.pdf"
-        )
-        let encoded = try JSONEncoder().encode(message)
-        var object = try XCTUnwrap(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
-        object.removeValue(forKey: "mimeType")
-        object.removeValue(forKey: "duration")
-        object.removeValue(forKey: "byteCount")
-
-        let decoded = try JSONDecoder().decode(
-            ChatMessage.self,
-            from: JSONSerialization.data(withJSONObject: object)
-        )
-
-        XCTAssertEqual(decoded.localFilename, "file.pdf")
-        XCTAssertNil(decoded.mimeType)
-        XCTAssertNil(decoded.duration)
-    }
 }

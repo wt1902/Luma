@@ -19,6 +19,24 @@ struct PhoneWatchSnapshot: Codable {
     let chats: [Chat]
 }
 
+/// Plain-value snapshots of the SwiftData models, taken on the main actor
+/// before the background queue builds the watch payload. Reading @Model
+/// properties off the main actor crashes with EXC_BAD_ACCESS.
+private struct PhoneWatchChatData {
+    let jid: String
+    let name: String
+    let unread: Int
+}
+
+private struct PhoneWatchMessageData {
+    let id: String
+    let conversationID: String
+    let body: String
+    let timestamp: Date
+    let outgoing: Bool
+    let encrypted: Bool
+}
+
 struct WatchVoiceMessage: Sendable {
     let transferID: String
     let jid: String
@@ -32,9 +50,9 @@ struct WatchVoiceMessage: Sendable {
 }
 
 #if os(iOS) && canImport(WatchConnectivity)
-import WatchConnectivity
+@preconcurrency import WatchConnectivity
 
-final class PhoneWatchBridge: NSObject, WCSessionDelegate {
+final class PhoneWatchBridge: NSObject, WCSessionDelegate, @unchecked Sendable {
     var onReply: ((String, String) -> Void)?
     var onVoiceMessage: ((WatchVoiceMessage) -> Void)? {
         didSet { deliverPendingVoiceMessages() }
@@ -49,25 +67,43 @@ final class PhoneWatchBridge: NSObject, WCSessionDelegate {
     private var deliveredVoiceTransferIDs: Set<String> = []
 
     override init() {
-        session = WCSession.isSupported() ? .default : nil
+        session =
+            !RuntimeEnvironment.isRunningTests && WCSession.isSupported()
+            ? .default
+            : nil
         super.init()
         pendingVoiceMessages = Self.loadPersistedVoiceMessages()
         session?.delegate = self
         session?.activate()
     }
 
+    @MainActor
     func update(conversations: [Conversation], messages: [ChatMessage]) {
         guard let session else { return }
-        // Copy-on-write snapshots are cheap here; the filtering, sorting and
-        // JSON encoding are not. Keep that work away from SwiftUI's main run
-        // loop, especially immediately after a MAM page is committed.
+        // SwiftData models must never be read off the main actor: snapshot
+        // the fields the watch needs here, then hand plain values to the
+        // background queue for the filtering, sorting and JSON encoding.
+        let chats = conversations.map { conversation in
+            PhoneWatchChatData(
+                jid: conversation.jid,
+                name: conversation.displayName,
+                unread: conversation.unreadCount
+            )
+        }
+        let entries = messages.map { message in
+            PhoneWatchMessageData(
+                id: message.clientID,
+                conversationID: message.conversationID,
+                body: message.previewText,
+                timestamp: message.timestamp,
+                outgoing: message.direction == .outgoing,
+                encrypted: message.security == .omemo
+            )
+        }
         snapshotQueue.async { [weak self, weak session] in
             guard let self,
                   let session,
-                  let data = Self.makeSnapshotData(
-                    conversations: conversations,
-                    messages: messages
-                  ),
+                  let data = Self.makeSnapshotData(chats: chats, entries: entries),
                   data != self.latestSnapshot else { return }
             self.latestSnapshot = data
             self.publishLatestSnapshot(using: session)
@@ -75,57 +111,56 @@ final class PhoneWatchBridge: NSObject, WCSessionDelegate {
     }
 
     private static func makeSnapshotData(
-        conversations: [Conversation],
-        messages: [ChatMessage]
+        chats: [PhoneWatchChatData],
+        entries: [PhoneWatchMessageData]
     ) -> Data? {
-        let visibleConversations = Array(conversations.prefix(20))
-        let visibleConversationIDs = Set(visibleConversations.map(\.id))
-        var recentMessagesByConversation: [String: [ChatMessage]] = [:]
+        let visibleChats = Array(chats.prefix(20))
+        let visibleChatIDs = Set(visibleChats.map(\.jid))
+        var recentMessagesByChat: [String: [PhoneWatchMessageData]] = [:]
 
         // Keep a bounded, chronologically sorted window. MAM can append an old
         // overlapping stanza after a newer live message, so array order alone
         // cannot identify the latest messages reliably.
-        for message in messages where visibleConversationIDs.contains(message.conversationID) {
-            var recent = recentMessagesByConversation[message.conversationID] ?? []
-            let insertionIndex = Self.insertionIndex(for: message, in: recent)
-            recent.insert(message, at: insertionIndex)
+        for entry in entries where visibleChatIDs.contains(entry.conversationID) {
+            var recent = recentMessagesByChat[entry.conversationID] ?? []
+            let insertionIndex = Self.insertionIndex(for: entry, in: recent)
+            recent.insert(entry, at: insertionIndex)
             if recent.count > 20 {
                 recent.removeFirst(recent.count - 20)
             }
-            recentMessagesByConversation[message.conversationID] = recent
+            recentMessagesByChat[entry.conversationID] = recent
         }
 
-        let chats = visibleConversations.map { conversation in
+        let snapshotChats = visibleChats.map { chat in
             PhoneWatchSnapshot.Chat(
-                jid: conversation.jid,
-                name: conversation.displayName,
-                unread: conversation.unreadCount,
-                messages: (recentMessagesByConversation[conversation.id] ?? [])
-                    .map {
-                        PhoneWatchSnapshot.Message(
-                            id: $0.id,
-                            body: $0.previewText,
-                            timestamp: $0.timestamp,
-                            outgoing: $0.direction == .outgoing,
-                            encrypted: $0.security == .omemo
-                        )
-                    }
+                jid: chat.jid,
+                name: chat.name,
+                unread: chat.unread,
+                messages: (recentMessagesByChat[chat.jid] ?? []).map { entry in
+                    PhoneWatchSnapshot.Message(
+                        id: entry.id,
+                        body: entry.body,
+                        timestamp: entry.timestamp,
+                        outgoing: entry.outgoing,
+                        encrypted: entry.encrypted
+                    )
+                }
             )
         }
-        return try? JSONEncoder.watchEncoder.encode(PhoneWatchSnapshot(chats: chats))
+        return try? JSONEncoder.watchEncoder.encode(PhoneWatchSnapshot(chats: snapshotChats))
     }
 
     private static func insertionIndex(
-        for message: ChatMessage,
-        in sortedMessages: [ChatMessage]
+        for entry: PhoneWatchMessageData,
+        in sorted: [PhoneWatchMessageData]
     ) -> Int {
         var lowerBound = 0
-        var upperBound = sortedMessages.count
+        var upperBound = sorted.count
         while lowerBound < upperBound {
             let middle = lowerBound + (upperBound - lowerBound) / 2
-            let existing = sortedMessages[middle]
-            let existingComesFirst = existing.timestamp < message.timestamp
-                || (existing.timestamp == message.timestamp && existing.id < message.id)
+            let existing = sorted[middle]
+            let existingComesFirst = existing.timestamp < entry.timestamp
+                || (existing.timestamp == entry.timestamp && existing.id < entry.id)
             if existingComesFirst {
                 lowerBound = middle + 1
             } else {
@@ -150,6 +185,7 @@ final class PhoneWatchBridge: NSObject, WCSessionDelegate {
     func sessionDidBecomeInactive(_ session: WCSession) {}
 
     func sessionDidDeactivate(_ session: WCSession) {
+        guard !RuntimeEnvironment.isRunningTests else { return }
         session.activate()
     }
 

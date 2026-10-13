@@ -1,4 +1,5 @@
 import XCTest
+
 @testable import Luma
 
 final class CallSDPOrderingTests: XCTestCase {
@@ -49,18 +50,27 @@ final class CallSDPOrderingTests: XCTestCase {
     }
 
     func testMartinParseInputPreservesFinalMSIDCharacter() {
-        let raw = [
-            "v=0",
-            "m=video 9 UDP/TLS/RTP/SAVPF 96",
-            "a=ssrc-group:FID 2408145738 2025569816",
-            "a=ssrc:2408145738 msid:luma-stream luma-video-0435",
-            "a=ssrc:2025569816 msid:luma-stream luma-video-0435"
-        ].joined(separator: "\r\n") + "\n"
+        let raw =
+            [
+                "v=0",
+                "m=video 9 UDP/TLS/RTP/SAVPF 96",
+                "a=ssrc-group:FID 2408145738 2025569816",
+                "a=ssrc:2408145738 msid:luma-stream luma-video-0435",
+                "a=ssrc:2025569816 msid:luma-stream luma-video-0435",
+            ].joined(separator: "\r\n") + "\n"
 
-        let parseInput = CallSDPNormalization.martinParseInput(raw)
+        let result = CallSDPNormalization.martinParseInput(raw)
 
-        XCTAssertTrue(parseInput.hasSuffix("luma-video-0435\r\n"))
-        XCTAssertTrue(String(parseInput.dropLast(2)).hasSuffix("luma-video-0435"))
+        let expected =
+            [
+                "v=0",
+                "m=video 9 UDP/TLS/RTP/SAVPF 96",
+                "a=ssrc-group:FID 2408145738 2025569816",
+                "a=ssrc:2408145738 msid:luma-stream luma-video-0435",
+                "a=ssrc:2025569816 msid:luma-stream luma-video-0435",
+            ].joined(separator: "\r\n") + "\r\n"
+
+        XCTAssertEqual(result, expected)
     }
 
     func testMartinParseInputUsesExactlyOneTrailingCRLF() {
@@ -80,7 +90,7 @@ final class CallSDPOrderingTests: XCTestCase {
             ],
             msids: [
                 "primary": "luma-stream luma-video-9FBECB58-45C5-445B-9F4E-0598594F4F2D",
-                "rtx": "luma-stream luma-video-9FBECB58-45C5-445B-9F4E-0598594F4F2"
+                "rtx": "luma-stream luma-video-9FBECB58-45C5-445B-9F4E-0598594F4F2",
             ]
         )
 
@@ -92,12 +102,12 @@ final class CallSDPOrderingTests: XCTestCase {
         let repaired = CallSDPCompatibility.canonicalFIDMSIDs(
             groups: [
                 .init(semantics: "fid", sources: ["primary", "rtx"]),
-                .init(semantics: "SIM", sources: ["sim-a", "sim-b"])
+                .init(semantics: "SIM", sources: ["sim-a", "sim-b"]),
             ],
             msids: [
                 "primary": "stream video-track",
                 "sim-a": "stream camera-a",
-                "sim-b": "stream camera-b"
+                "sim-b": "stream camera-b",
             ]
         )
 
@@ -107,26 +117,29 @@ final class CallSDPOrderingTests: XCTestCase {
     }
 
     func testCandidateDispatchWaitsForRemoteAnswerAndFullJID() {
-        XCTAssertFalse(CallCandidateDispatchGate.canSend(
-            initialDescriptionWasSignaled: true,
-            hasLocalDescription: true,
-            hasRemoteDescription: false,
-            hasFullPeerJID: true
-        ))
-        XCTAssertFalse(CallCandidateDispatchGate.canSend(
-            initialDescriptionWasSignaled: true,
-            hasLocalDescription: true,
-            hasRemoteDescription: true,
-            hasFullPeerJID: false
-        ))
+        XCTAssertFalse(
+            CallCandidateDispatchGate.canSend(
+                initialDescriptionWasSignaled: true,
+                hasLocalDescription: true,
+                hasRemoteDescription: false,
+                hasFullPeerJID: true
+            ))
+        XCTAssertFalse(
+            CallCandidateDispatchGate.canSend(
+                initialDescriptionWasSignaled: true,
+                hasLocalDescription: true,
+                hasRemoteDescription: true,
+                hasFullPeerJID: false
+            ))
     }
 
     func testCandidateDispatchOpensAfterSessionAccept() {
-        XCTAssertTrue(CallCandidateDispatchGate.canSend(
-            initialDescriptionWasSignaled: true,
-            hasLocalDescription: true,
-            hasRemoteDescription: true,
-            hasFullPeerJID: true
-        ))
+        XCTAssertTrue(
+            CallCandidateDispatchGate.canSend(
+                initialDescriptionWasSignaled: true,
+                hasLocalDescription: true,
+                hasRemoteDescription: true,
+                hasFullPeerJID: true
+            ))
     }
 }

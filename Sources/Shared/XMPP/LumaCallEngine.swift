@@ -4,15 +4,15 @@ import Martin
 import WebRTC
 
 #if os(iOS)
-import UIKit
+    import UIKit
 #elseif os(macOS)
-import AppKit
+    import AppKit
 #endif
 
 /// Owns one active 1:1 Jingle RTP session and bridges Martin to WebRTC.
 /// Incoming calls are available while the XMPP connection is alive; production
 /// wake-up for a terminated iOS app still requires VoIP push infrastructure.
-final class LumaCallEngine: NSObject {
+final class LumaCallEngine: NSObject, @unchecked Sendable {
     var snapshotHandler: (@MainActor (CallSnapshot?) -> Void)?
     var historyHandler: (@MainActor (CallHistoryEntry) -> Void)?
     var errorHandler: (@MainActor (String) -> Void)?
@@ -76,15 +76,16 @@ final class LumaCallEngine: NSObject {
                     media: media,
                     client: client
                 )
-#if DEBUG
-                print(
-                    "Luma Call: selected \(destination.jid.stringValue) via "
-                        + (destination.usesMessageInitiation ? "JMI" : "direct Jingle")
-                        + " for \(media.map(\.rawValue).sorted().joined(separator: "+"))."
-                )
-#endif
+                #if DEBUG
+                    print(
+                        "Luma Call: selected \(destination.jid.stringValue) via "
+                            + (destination.usesMessageInitiation ? "JMI" : "direct Jingle")
+                            + " for \(media.map(\.rawValue).sorted().joined(separator: "+"))."
+                    )
+                #endif
                 let sid = UUID().uuidString.lowercased()
-                let initiationType: JingleSessionInitiationType = destination.usesMessageInitiation
+                let initiationType: JingleSessionInitiationType =
+                    destination.usesMessageInitiation
                     ? .message
                     : .iq
                 let session = self.makeSession(
@@ -108,14 +109,16 @@ final class LumaCallEngine: NSObject {
                 if destination.usesMessageInitiation {
                     Task {
                         do {
-                            try await session.initiate(descriptions: media
-                                .sorted { $0.rawValue < $1.rawValue }
-                                .map {
-                                    Jingle.MessageInitiationAction.Description(
-                                        xmlns: "urn:xmpp:jingle:apps:rtp:1",
-                                        media: $0.rawValue
-                                    )
-                                })
+                            try await session.initiate(
+                                descriptions:
+                                    media
+                                    .sorted { $0.rawValue < $1.rawValue }
+                                    .map {
+                                        Jingle.MessageInitiationAction.Description(
+                                            xmlns: "urn:xmpp:jingle:apps:rtp:1",
+                                            media: $0.rawValue
+                                        )
+                                    })
                             completion(.success(()))
                         } catch {
                             self.queue.async {
@@ -150,8 +153,9 @@ final class LumaCallEngine: NSObject {
     func answerCall(completion: @escaping (Result<Void, Error>) -> Void) {
         queue.async {
             guard let call = self.activeCall,
-                  call.direction == .incoming,
-                  call.phase == .ringing else {
+                call.direction == .incoming,
+                call.phase == .ringing
+            else {
                 completion(.failure(LumaCallError.noIncomingCall))
                 return
             }
@@ -324,8 +328,9 @@ final class LumaCallEngine: NSObject {
         let capabilities = client.module(.caps)
         let candidates = presences.compactMap(\.from).filter { jid in
             guard capabilities.isFeatureSupported(JingleModule.XMLNS, by: jid),
-                  capabilities.isFeatureSupported(Jingle.Transport.ICEUDPTransport.XMLNS, by: jid),
-                  capabilities.isFeatureSupported("urn:xmpp:jingle:apps:rtp:audio", by: jid) else {
+                capabilities.isFeatureSupported(Jingle.Transport.ICEUDPTransport.XMLNS, by: jid),
+                capabilities.isFeatureSupported("urn:xmpp:jingle:apps:rtp:audio", by: jid)
+            else {
                 return false
             }
             return !media.contains(.video)
@@ -375,9 +380,9 @@ final class LumaCallEngine: NSObject {
         timeoutWorkItem?.cancel()
         let item = DispatchWorkItem { [weak self] in
             guard let self, self.activeCall?.id == callID else { return }
-#if DEBUG
-            print("Luma Call: timeout during \(stage) after \(Int(delay)) seconds.")
-#endif
+            #if DEBUG
+                print("Luma Call: timeout during \(stage) after \(Int(delay)) seconds.")
+            #endif
             self.fail(self.activeCall, error: LumaCallError.timedOut)
         }
         timeoutWorkItem = item
@@ -387,9 +392,9 @@ final class LumaCallEngine: NSObject {
     private func fail(_ call: LumaWebRTCCall?, error: Error) {
         guard call == nil || activeCall === call else { return }
         let text = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
-#if DEBUG
-        print("Luma Call: failure: \(text)")
-#endif
+        #if DEBUG
+            print("Luma Call: failure: \(text)")
+        #endif
         report(error)
         let cause: CallTerminationCause
         if let callError = error as? LumaCallError, case .timedOut = callError {
@@ -424,14 +429,14 @@ final class LumaCallEngine: NSObject {
             publish(nil)
             return
         }
-#if DEBUG
-        print(
-            "Luma Call: closing sid=\(call.session.sid) "
-                + "direction=\(String(describing: call.direction)) "
-                + "phase=\(String(describing: call.phase)) "
-                + "peer=\(call.session.jid.stringValue) trigger=\(trigger)."
-        )
-#endif
+        #if DEBUG
+            print(
+                "Luma Call: closing sid=\(call.session.sid) "
+                    + "direction=\(String(describing: call.direction)) "
+                    + "phase=\(String(describing: call.phase)) "
+                    + "peer=\(call.session.jid.stringValue) trigger=\(trigger)."
+            )
+        #endif
         let endedAt = Date()
         let outcome = CallHistoryPolicy.outcome(
             direction: call.direction,
@@ -515,20 +520,22 @@ extension LumaCallEngine: JingleSessionManager {
 
             case .proceed(let id):
                 guard let session = sessions[id],
-                      let call = activeCall,
-                      call.session === session,
-                      call.direction == .outgoing,
-                      call.phase == .ringing,
-                      session.pinPeerResource(jid) else {
-#if DEBUG
-                    print("Luma Jingle: ignored duplicate or foreign proceed for session \(id).")
-#endif
+                    let call = activeCall,
+                    call.session === session,
+                    call.direction == .outgoing,
+                    call.phase == .ringing,
+                    session.pinPeerResource(jid)
+                else {
+                    #if DEBUG
+                        print(
+                            "Luma Jingle: ignored duplicate or foreign proceed for session \(id).")
+                    #endif
                     return
                 }
                 call.phase = .connecting
-#if DEBUG
-                print("Luma Jingle: proceed from \(jid.stringValue) for session \(id).")
-#endif
+                #if DEBUG
+                    print("Luma Jingle: proceed from \(jid.stringValue) for session \(id).")
+                #endif
                 scheduleTimeout(
                     for: call.id,
                     after: 90,
@@ -551,7 +558,8 @@ extension LumaCallEngine: JingleSessionManager {
 
             case .retract(let id):
                 guard let session = sessions[id],
-                      session.matchesPeerEndpoint(jid) else { return }
+                    session.matchesPeerEndpoint(jid)
+                else { return }
                 finishActiveCall(
                     cause: .remoteCancelled,
                     sendTermination: false,
@@ -560,16 +568,17 @@ extension LumaCallEngine: JingleSessionManager {
 
             case .reject(let id):
                 guard let session = sessions[id],
-                      let call = activeCall,
-                      call.session === session,
-                      session.matchesPeerEndpoint(jid) else { return }
+                    let call = activeCall,
+                    call.session === session,
+                    session.matchesPeerEndpoint(jid)
+                else { return }
                 // A JMI proposal is delivered to every online resource. Once a
                 // resource has proceeded, a delayed reject from a sibling must
                 // not tear down the session that already owns the call.
                 guard call.phase == .ringing else {
-#if DEBUG
-                    print("Luma Jingle: ignored late reject after proceed for session \(id).")
-#endif
+                    #if DEBUG
+                        print("Luma Jingle: ignored late reject after proceed for session \(id).")
+                    #endif
                     return
                 }
                 finishActiveCall(
@@ -599,7 +608,8 @@ extension LumaCallEngine: JingleSessionManager {
         bundle: [String]?
     ) throws {
         try performSync {
-            let media = Set(contents.compactMap { CallMedia(rawValue: $0.description?.media ?? "") })
+            let media = Set(
+                contents.compactMap { CallMedia(rawValue: $0.description?.media ?? "") })
             guard media.contains(.audio) else { throw XMPPError.feature_not_implemented }
 
             if let existing = sessions[sid] {
@@ -616,7 +626,9 @@ extension LumaCallEngine: JingleSessionManager {
                 }
                 return
             }
-            guard activeCall == nil else { throw XMPPError.resource_constraint("Другой звонок уже активен") }
+            guard activeCall == nil else {
+                throw XMPPError.resource_constraint("Другой звонок уже активен")
+            }
 
             let session = makeSession(
                 context: context,
@@ -648,21 +660,22 @@ extension LumaCallEngine: JingleSessionManager {
     ) throws {
         try performSync {
             guard let session = sessions[sid],
-                  session.pinPeerResource(jid) else {
+                session.pinPeerResource(jid)
+            else {
                 throw XMPPError.item_not_found
             }
             // JMI may initially address a bare JID. session-accept is the first
             // IQ guaranteed to identify the resource that owns this Jingle
             // session, so keep every later transport-info stanza on it.
-#if DEBUG
-            let acceptedMedia = contents.map {
-                "\($0.name):\($0.description?.media ?? "unknown")"
-            }.joined(separator: ",")
-            print(
-                "Luma Jingle: session-accept from \(jid.stringValue) "
-                    + "sid=\(sid) contents=[\(acceptedMedia)]."
-            )
-#endif
+            #if DEBUG
+                let acceptedMedia = contents.map {
+                    "\($0.name):\($0.description?.media ?? "unknown")"
+                }.joined(separator: ",")
+                print(
+                    "Luma Jingle: session-accept from \(jid.stringValue) "
+                        + "sid=\(sid) contents=[\(acceptedMedia)]."
+                )
+            #endif
             session.accepted(contents: contents, bundle: bundle)
             if let call = activeCall, call.session === session {
                 call.phase = .connecting
@@ -679,7 +692,8 @@ extension LumaCallEngine: JingleSessionManager {
     func sessionTerminated(for context: Context, with jid: JID, sid: String) throws {
         try performSync {
             guard let session = sessions[sid],
-                  session.matchesPeerEndpoint(jid) else {
+                session.matchesPeerEndpoint(jid)
+            else {
                 throw XMPPError.item_not_found
             }
             if activeCall?.session.sid == sid {
@@ -703,7 +717,8 @@ extension LumaCallEngine: JingleSessionManager {
     ) throws {
         try performSync {
             guard let session = sessions[sid],
-                  session.pinPeerResource(jid) else {
+                session.pinPeerResource(jid)
+            else {
                 throw XMPPError.item_not_found
             }
             // Also learn the endpoint from an early candidate sent by the
@@ -728,7 +743,8 @@ extension LumaCallEngine: JingleSessionManager {
     ) throws {
         try performSync {
             guard let session = sessions[sid],
-                  session.matchesPeerEndpoint(jid) else {
+                session.matchesPeerEndpoint(jid)
+            else {
                 throw XMPPError.item_not_found
             }
             session.contentModified(action: action, contents: contents, bundle: bundle)
@@ -743,7 +759,8 @@ extension LumaCallEngine: JingleSessionManager {
     ) throws {
         try performSync {
             guard let session = sessions[sid],
-                  session.matchesPeerEndpoint(jid) else {
+                session.matchesPeerEndpoint(jid)
+            else {
                 throw XMPPError.item_not_found
             }
             session.sessionInfoReceived(info: info)
@@ -789,7 +806,8 @@ private final class LumaJingleSession: JingleSession {
             terminate(reason: reason)
             return
         }
-        let action: Jingle.MessageInitiationAction = role == .initiator
+        let action: Jingle.MessageInitiationAction =
+            role == .initiator
             ? .retract(id: sid)
             : .reject(id: sid)
         owningContext?.module(.jingle).sendMessageInitiation(action: action, to: jid)
@@ -806,9 +824,9 @@ private final class LumaJingleSession: JingleSession {
         if jid.resource != nil {
             return peer == jid
         }
-#if DEBUG
-        print("Luma Jingle: pinned session \(sid) to resource \(peer.stringValue).")
-#endif
+        #if DEBUG
+            print("Luma Jingle: pinned session \(sid) to resource \(peer.stringValue).")
+        #endif
         accepted(by: peer)
         return true
     }
@@ -871,7 +889,7 @@ private final class LumaJingleSession: JingleSession {
 
 // MARK: - Live WebRTC call
 
-private final class LumaWebRTCCall: NSObject, RTCPeerConnectionDelegate {
+private final class LumaWebRTCCall: NSObject, RTCPeerConnectionDelegate, @unchecked Sendable {
     let id = UUID()
     let startedAt = Date()
     unowned let engine: LumaCallEngine
@@ -901,7 +919,7 @@ private final class LumaWebRTCCall: NSObject, RTCPeerConnectionDelegate {
     private var connectionFailureWorkItem: DispatchWorkItem?
     private var isPreparingPeerConnection = false
     private var prepareCallbacks: [(Result<Void, Error>) -> Void] = []
-    private let webRTCSID = String(UInt64.random(in: UInt64.min ... UInt64.max))
+    private let webRTCSID = String(UInt64.random(in: UInt64.min...UInt64.max))
 
     init(
         engine: LumaCallEngine,
@@ -1001,22 +1019,25 @@ private final class LumaWebRTCCall: NSObject, RTCPeerConnectionDelegate {
     }
 
     func configureSpeaker(_ enabled: Bool) throws {
-#if os(iOS)
-        let audioSession = AVAudioSession.sharedInstance()
-        try audioSession.overrideOutputAudioPort(enabled ? .speaker : .none)
-        try audioSession.setActive(true)
-#else
-        _ = enabled
-#endif
+        #if os(iOS)
+            let audioSession = AVAudioSession.sharedInstance()
+            try audioSession.overrideOutputAudioPort(enabled ? .speaker : .none)
+            try audioSession.setActive(true)
+        #else
+            _ = enabled
+        #endif
     }
 
     func switchCamera() {
         guard let capturer = videoCapturer else { return }
-        let currentPosition = RTCCameraVideoCapturer.captureDevices()
+        let currentPosition =
+            RTCCameraVideoCapturer.captureDevices()
             .first(where: { $0.uniqueID == cameraDeviceID })?.position ?? .front
-        guard let device = RTCCameraVideoCapturer.captureDevices().first(where: {
-            $0.position != currentPosition && $0.position != .unspecified
-        }), let format = Self.preferredFormat(for: device) else { return }
+        guard
+            let device = RTCCameraVideoCapturer.captureDevices().first(where: {
+                $0.position != currentPosition && $0.position != .unspecified
+            }), let format = Self.preferredFormat(for: device)
+        else { return }
         cameraDeviceID = device.uniqueID
         capturer.startCapture(with: device, format: format, fps: Self.preferredFPS(for: format))
     }
@@ -1032,12 +1053,12 @@ private final class LumaWebRTCCall: NSObject, RTCPeerConnectionDelegate {
         localAudioTrack = nil
         localVideoTrack = nil
         remoteVideoTrack = nil
-#if os(iOS)
-        try? AVAudioSession.sharedInstance().setActive(
-            false,
-            options: .notifyOthersOnDeactivation
-        )
-#endif
+        #if os(iOS)
+            try? AVAudioSession.sharedInstance().setActive(
+                false,
+                options: .notifyOthersOnDeactivation
+            )
+        #endif
     }
 
     private func createPeerConnection(iceServers: [RTCIceServer]) throws {
@@ -1071,19 +1092,19 @@ private final class LumaWebRTCCall: NSObject, RTCPeerConnectionDelegate {
                 delegate: self
             ) {
                 createdPeerConnection = candidate
-#if DEBUG
-                if index > 0 {
-                    print("Luma WebRTC: RTCConfiguration recovered with \(attempt.name).")
-                }
-#endif
+                #if DEBUG
+                    if index > 0 {
+                        print("Luma WebRTC: RTCConfiguration recovered with \(attempt.name).")
+                    }
+                #endif
                 break
             }
-#if DEBUG
-            print(
-                "Luma WebRTC: RTCConfiguration rejected "
-                    + "\(attempt.name) (\(attempt.servers.count) ICE server(s))."
-            )
-#endif
+            #if DEBUG
+                print(
+                    "Luma WebRTC: RTCConfiguration rejected "
+                        + "\(attempt.name) (\(attempt.servers.count) ICE server(s))."
+                )
+            #endif
         }
 
         guard let peerConnection = createdPeerConnection else {
@@ -1091,22 +1112,22 @@ private final class LumaWebRTCCall: NSObject, RTCPeerConnectionDelegate {
         }
         self.peerConnection = peerConnection
 
-#if os(iOS)
-        let audioSession = AVAudioSession.sharedInstance()
-        let audioOptions: AVAudioSession.CategoryOptions = [
-            .allowBluetoothHFP,
-            .allowBluetoothA2DP
-        ]
-        try audioSession.setCategory(
-            .playAndRecord,
-            mode: media.contains(.video) ? .videoChat : .voiceChat,
-            options: audioOptions
-        )
-        try audioSession.setActive(true)
-        if media.contains(.video) {
-            try audioSession.overrideOutputAudioPort(.speaker)
-        }
-#endif
+        #if os(iOS)
+            let audioSession = AVAudioSession.sharedInstance()
+            let audioOptions: AVAudioSession.CategoryOptions = [
+                .allowBluetoothHFP,
+                .allowBluetoothA2DP,
+            ]
+            try audioSession.setCategory(
+                .playAndRecord,
+                mode: media.contains(.video) ? .videoChat : .voiceChat,
+                options: audioOptions
+            )
+            try audioSession.setActive(true)
+            if media.contains(.video) {
+                try audioSession.overrideOutputAudioPort(.speaker)
+            }
+        #endif
 
         let audioConstraints = RTCMediaConstraints(
             mandatoryConstraints: nil,
@@ -1192,9 +1213,11 @@ private final class LumaWebRTCCall: NSObject, RTCPeerConnectionDelegate {
             guard let self else { return }
             self.engine.performOnQueue {
                 if let error {
-#if DEBUG
-                    print("Luma WebRTC: setRemoteDescription failed: \(error.localizedDescription)")
-#endif
+                    #if DEBUG
+                        print(
+                            "Luma WebRTC: setRemoteDescription failed: \(error.localizedDescription)"
+                        )
+                    #endif
                     self.engine.callDidFail(self, error: error)
                     return
                 }
@@ -1209,7 +1232,8 @@ private final class LumaWebRTCCall: NSObject, RTCPeerConnectionDelegate {
                 // both the answer and the exact full JID of its owner.
                 self.sendLocalCandidates()
                 if peerConnection.signalingState == .haveRemoteOffer {
-                    self.generateDescription(type: .answer, peerConnection: peerConnection) { result in
+                    self.generateDescription(type: .answer, peerConnection: peerConnection) {
+                        result in
                         switch result {
                         case .success(let local):
                             Task {
@@ -1266,11 +1290,13 @@ private final class LumaWebRTCCall: NSObject, RTCPeerConnectionDelegate {
                     let martinSDP = CallSDPNormalization.martinParseInput(
                         description.sdp
                     )
-                    guard let (sdp, _) = SDP.parse(
-                        sdpString: martinSDP,
-                        creatorProvider: self.session.contentCreator(of:),
-                        localRole: self.session.role
-                    ) else {
+                    guard
+                        let (sdp, _) = SDP.parse(
+                            sdpString: martinSDP,
+                            creatorProvider: self.session.contentCreator(of:),
+                            localRole: self.session.role
+                        )
+                    else {
                         completion(.failure(LumaCallError.sdpGenerationFailed))
                         return
                     }
@@ -1280,14 +1306,14 @@ private final class LumaWebRTCCall: NSObject, RTCPeerConnectionDelegate {
                         completion(.failure(LumaCallError.incompatibleLocalDescription))
                         return
                     }
-#if DEBUG
-                    if fidStatus.total > 0 {
-                        print(
-                            "Luma SDP: verified \(fidStatus.total) FID group(s); "
-                                + "repaired \(repaired.repairedCount) source msid(s)."
-                        )
-                    }
-#endif
+                    #if DEBUG
+                        if fidStatus.total > 0 {
+                            print(
+                                "Luma SDP: verified \(fidStatus.total) FID group(s); "
+                                    + "repaired \(repaired.repairedCount) source msid(s)."
+                            )
+                        }
+                    #endif
                     self.localSDP = repaired.sdp
                     completion(.success(repaired.sdp))
                 }
@@ -1307,30 +1333,33 @@ private final class LumaWebRTCCall: NSObject, RTCPeerConnectionDelegate {
         // until the remote SDP arrives from that concrete full JID; otherwise
         // Prosody can route transport-info to another resource, which correctly
         // responds with item-not-found for the SID.
-        guard CallCandidateDispatchGate.canSend(
-            initialDescriptionWasSignaled: initialDescriptionWasSignaled,
-            hasLocalDescription: localSDP != nil,
-            hasRemoteDescription: remoteSDP != nil,
-            hasFullPeerJID: session.jid.resource != nil
-        ), let localSDP else { return }
+        guard
+            CallCandidateDispatchGate.canSend(
+                initialDescriptionWasSignaled: initialDescriptionWasSignaled,
+                hasLocalDescription: localSDP != nil,
+                hasRemoteDescription: remoteSDP != nil,
+                hasFullPeerJID: session.jid.resource != nil
+            ), let localSDP
+        else { return }
         let candidates = localCandidates
         localCandidates.removeAll()
-#if DEBUG
-        if !candidates.isEmpty {
-            print(
-                "Luma Jingle: sending \(candidates.count) ICE candidate(s) "
-                    + "to \(session.jid.stringValue) sid=\(session.sid)."
-            )
-        }
-#endif
+        #if DEBUG
+            if !candidates.isEmpty {
+                print(
+                    "Luma Jingle: sending \(candidates.count) ICE candidate(s) "
+                        + "to \(session.jid.stringValue) sid=\(session.sid)."
+                )
+            }
+        #endif
         for candidate in candidates {
             let line = candidate.sdp.hasPrefix("a=") ? candidate.sdp : "a=\(candidate.sdp)"
             guard let jingleCandidate = Jingle.Transport.ICEUDPTransport.Candidate(fromSDP: line),
-                  let contentName = candidate.sdpMid,
-                  let content = localSDP.contents.first(where: { $0.name == contentName }),
-                  let transport = content.transports.first(where: {
-                      $0 is Jingle.Transport.ICEUDPTransport
-                  }) as? Jingle.Transport.ICEUDPTransport else { continue }
+                let contentName = candidate.sdpMid,
+                let content = localSDP.contents.first(where: { $0.name == contentName }),
+                let transport = content.transports.first(where: {
+                    $0 is Jingle.Transport.ICEUDPTransport
+                }) as? Jingle.Transport.ICEUDPTransport
+            else { continue }
             _ = session.transportInfo(
                 contentName: contentName,
                 transport: Jingle.Transport.ICEUDPTransport(
@@ -1356,11 +1385,13 @@ private final class LumaWebRTCCall: NSObject, RTCPeerConnectionDelegate {
                 sdpMid: contentName
             ),
             completionHandler: { error in
-#if DEBUG
-                if let error {
-                    print("Luma WebRTC: remote ICE candidate rejected: \(error.localizedDescription)")
-                }
-#endif
+                #if DEBUG
+                    if let error {
+                        print(
+                            "Luma WebRTC: remote ICE candidate rejected: \(error.localizedDescription)"
+                        )
+                    }
+                #endif
             }
         )
     }
@@ -1372,17 +1403,20 @@ private final class LumaWebRTCCall: NSObject, RTCPeerConnectionDelegate {
 
         let expectedNames = localSDP.contents.map(\.name)
         let receivedNames = sdp.contents.map(\.name)
-        guard let indices = CallSDPOrdering.answerIndices(
-            localOrder: expectedNames,
-            remoteOrder: receivedNames
-        ) else {
+        guard
+            let indices = CallSDPOrdering.answerIndices(
+                localOrder: expectedNames,
+                remoteOrder: receivedNames
+            )
+        else {
             throw LumaCallError.incompatibleRemoteDescription
         }
         let normalizedBundle: [String]?
         if let bundle = sdp.bundle {
             let bundleNames = Set(bundle)
             guard bundleNames.count == bundle.count,
-                  bundleNames.isSubset(of: Set(receivedNames)) else {
+                bundleNames.isSubset(of: Set(receivedNames))
+            else {
                 throw LumaCallError.incompatibleRemoteDescription
             }
             normalizedBundle = expectedNames.filter { bundleNames.contains($0) }
@@ -1394,9 +1428,9 @@ private final class LumaWebRTCCall: NSObject, RTCPeerConnectionDelegate {
         }
 
         let orderedContents = indices.map { sdp.contents[$0] }
-#if DEBUG
-        print("Luma WebRTC: reordered session-accept contents to match the local offer.")
-#endif
+        #if DEBUG
+            print("Luma WebRTC: reordered session-accept contents to match the local offer.")
+        #endif
         return SDP(contents: orderedContents, bundle: normalizedBundle)
     }
 
@@ -1438,7 +1472,9 @@ private final class LumaWebRTCCall: NSObject, RTCPeerConnectionDelegate {
 
     // MARK: RTCPeerConnectionDelegate
 
-    func peerConnection(_ peerConnection: RTCPeerConnection, didChange stateChanged: RTCSignalingState) {}
+    func peerConnection(
+        _ peerConnection: RTCPeerConnection, didChange stateChanged: RTCSignalingState
+    ) {}
     func peerConnection(_ peerConnection: RTCPeerConnection, didAdd stream: RTCMediaStream) {
         guard let track = stream.videoTracks.first else { return }
         engine.performOnQueue {
@@ -1449,11 +1485,13 @@ private final class LumaWebRTCCall: NSObject, RTCPeerConnectionDelegate {
     func peerConnection(_ peerConnection: RTCPeerConnection, didRemove stream: RTCMediaStream) {}
     func peerConnectionShouldNegotiate(_ peerConnection: RTCPeerConnection) {}
 
-    func peerConnection(_ peerConnection: RTCPeerConnection, didChange newState: RTCIceConnectionState) {
+    func peerConnection(
+        _ peerConnection: RTCPeerConnection, didChange newState: RTCIceConnectionState
+    ) {
         engine.performOnQueue {
-#if DEBUG
-            print("Luma WebRTC: ICE state changed to \(String(describing: newState)).")
-#endif
+            #if DEBUG
+                print("Luma WebRTC: ICE state changed to \(String(describing: newState)).")
+            #endif
             switch newState {
             case .connected, .completed:
                 self.cancelScheduledConnectionFailure()
@@ -1475,16 +1513,21 @@ private final class LumaWebRTCCall: NSObject, RTCPeerConnectionDelegate {
         }
     }
 
-    func peerConnection(_ peerConnection: RTCPeerConnection, didChange newState: RTCIceGatheringState) {}
+    func peerConnection(
+        _ peerConnection: RTCPeerConnection, didChange newState: RTCIceGatheringState
+    ) {}
 
-    func peerConnection(_ peerConnection: RTCPeerConnection, didGenerate candidate: RTCIceCandidate) {
+    func peerConnection(_ peerConnection: RTCPeerConnection, didGenerate candidate: RTCIceCandidate)
+    {
         engine.performOnQueue {
             self.localCandidates.append(candidate)
             self.sendLocalCandidates()
         }
     }
 
-    func peerConnection(_ peerConnection: RTCPeerConnection, didRemove candidates: [RTCIceCandidate]) {}
+    func peerConnection(
+        _ peerConnection: RTCPeerConnection, didRemove candidates: [RTCIceCandidate]
+    ) {}
     func peerConnection(_ peerConnection: RTCPeerConnection, didOpen dataChannel: RTCDataChannel) {}
 
     func peerConnection(
@@ -1499,7 +1542,8 @@ private final class LumaWebRTCCall: NSObject, RTCPeerConnectionDelegate {
         }
     }
 
-    func peerConnection(_ peerConnection: RTCPeerConnection, didRemove rtpReceiver: RTCRtpReceiver) {
+    func peerConnection(_ peerConnection: RTCPeerConnection, didRemove rtpReceiver: RTCRtpReceiver)
+    {
         guard let track = rtpReceiver.track as? RTCVideoTrack else { return }
         engine.performOnQueue {
             guard self.remoteVideoTrack === track else { return }
@@ -1511,40 +1555,43 @@ private final class LumaWebRTCCall: NSObject, RTCPeerConnectionDelegate {
 
 // MARK: - Queue helpers kept fileprivate for the live call object
 
-private extension LumaCallEngine {
-    func performOnQueue(_ action: @escaping () -> Void) {
+extension LumaCallEngine {
+    fileprivate func performOnQueue(_ action: @escaping () -> Void) {
         queue.async(execute: action)
     }
 
-    func performOnQueue(after delay: TimeInterval, execute item: DispatchWorkItem) {
+    fileprivate func performOnQueue(after delay: TimeInterval, execute item: DispatchWorkItem) {
         queue.asyncAfter(deadline: .now() + delay, execute: item)
     }
 
-    func performAttachedClient() -> XMPPClient? {
+    fileprivate func performAttachedClient() -> XMPPClient? {
         performSync { client }
     }
 }
 
-private extension ExternalServiceDiscoveryModule.Service {
-    var rtcIceServer: RTCIceServer? {
+extension ExternalServiceDiscoveryModule.Service {
+    fileprivate var rtcIceServer: RTCIceServer? {
         let normalizedType = type.lowercased()
         let normalizedHost = host.trimmingCharacters(in: .whitespacesAndNewlines)
         guard ["stun", "stuns", "turn", "turns"].contains(normalizedType) else { return nil }
         guard !normalizedHost.isEmpty,
-              normalizedHost.rangeOfCharacter(from: .whitespacesAndNewlines) == nil,
-              !normalizedHost.contains("/"),
-              !normalizedHost.contains("?"),
-              !normalizedHost.contains("#") else { return nil }
+            normalizedHost.rangeOfCharacter(from: .whitespacesAndNewlines) == nil,
+            !normalizedHost.contains("/"),
+            !normalizedHost.contains("?"),
+            !normalizedHost.contains("#")
+        else { return nil }
         guard !normalizedType.hasSuffix("s") || transport == nil || transport == .tcp else {
             return nil
         }
         if normalizedType.hasPrefix("turn") {
             guard let username, !username.isEmpty,
-                  let password, !password.isEmpty else { return nil }
+                let password, !password.isEmpty
+            else { return nil }
         }
         if let expires, expires <= Date() { return nil }
 
-        let escapedHost = normalizedHost.contains(":") && !normalizedHost.hasPrefix("[")
+        let escapedHost =
+            normalizedHost.contains(":") && !normalizedHost.hasPrefix("[")
             ? "[\(normalizedHost)]"
             : normalizedHost
         var url = "\(normalizedType):\(escapedHost)"
@@ -1567,9 +1614,10 @@ private extension ExternalServiceDiscoveryModule.Service {
 enum CallSDPOrdering {
     static func answerIndices(localOrder: [String], remoteOrder: [String]) -> [Int]? {
         guard localOrder.count == remoteOrder.count,
-              Set(localOrder).count == localOrder.count,
-              Set(remoteOrder).count == remoteOrder.count,
-              Set(localOrder) == Set(remoteOrder) else { return nil }
+            Set(localOrder).count == localOrder.count,
+            Set(remoteOrder).count == remoteOrder.count,
+            Set(localOrder) == Set(remoteOrder)
+        else { return nil }
 
         let remoteIndices = Dictionary(
             uniqueKeysWithValues: remoteOrder.enumerated().map { ($0.element, $0.offset) }
@@ -1583,17 +1631,19 @@ enum CallSDPOrdering {
 }
 
 enum CallSDPNormalization {
-    /// Martin 3.2.4 expects CRLF between lines and unconditionally drops the
-    /// final two characters of its input. Give it one, and only one, trailing
-    /// CRLF so the last character of an SSRC/MSID value is never discarded.
     static func martinParseInput(_ webRTCSDP: String) -> String {
-        var normalized = webRTCSDP
+        let lfNormalized =
+            webRTCSDP
             .replacingOccurrences(of: "\r\n", with: "\n")
             .replacingOccurrences(of: "\r", with: "\n")
-        while normalized.hasSuffix("\n") {
-            normalized.removeLast()
+
+        var lines = lfNormalized.components(separatedBy: "\n")
+
+        while lines.last?.isEmpty == true {
+            lines.removeLast()
         }
-        return normalized.replacingOccurrences(of: "\n", with: "\r\n") + "\r\n"
+
+        return lines.joined(separator: "\r\n") + "\r\n"
     }
 }
 
@@ -1632,9 +1682,11 @@ enum CallSDPCompatibility {
 
             var currentMSIDs: [String: String] = [:]
             for source in description.ssrcs {
-                guard let value = source.parameters.first(where: {
-                    $0.key.lowercased() == "msid"
-                })?.value, !value.isEmpty else { continue }
+                guard
+                    let value = source.parameters.first(where: {
+                        $0.key.lowercased() == "msid"
+                    })?.value, !value.isEmpty
+                else { continue }
                 currentMSIDs[source.ssrc] = value
             }
             let desiredMSIDs = canonicalFIDMSIDs(
@@ -1647,19 +1699,21 @@ enum CallSDPCompatibility {
             var changed = false
             let sources = description.ssrcs.map { source -> Jingle.RTP.Description.SSRC in
                 guard let desired = desiredMSIDs[source.ssrc],
-                      currentMSIDs[source.ssrc] != desired else {
+                    currentMSIDs[source.ssrc] != desired
+                else {
                     return source
                 }
                 changed = true
                 repairedCount += 1
-                let parameters = source.parameters.filter {
-                    $0.key.lowercased() != "msid"
-                } + [
-                    Jingle.RTP.Description.SSRC.Parameter(
-                        key: "msid",
-                        value: desired
-                    )
-                ]
+                let parameters =
+                    source.parameters.filter {
+                        $0.key.lowercased() != "msid"
+                    } + [
+                        Jingle.RTP.Description.SSRC.Parameter(
+                            key: "msid",
+                            value: desired
+                        )
+                    ]
                 return Jingle.RTP.Description.SSRC(
                     ssrc: source.ssrc,
                     parameters: parameters
@@ -1756,11 +1810,14 @@ private enum LumaCallError: LocalizedError {
         case .unsupportedByContact:
             return "Устройства контакта не объявили поддержку совместимых Jingle-звонков."
         case .mediaEngineUnavailable:
-            return "WebRTC не смог создать соединение даже без STUN/TURN. Очистите сборку и переустановите приложение."
+            return
+                "WebRTC не смог создать соединение даже без STUN/TURN. Очистите сборку и переустановите приложение."
         case .incompatibleLocalDescription:
-            return "WebRTC сформировал несовместимое описание видеопотока. Повторите звонок после перезапуска приложения."
+            return
+                "WebRTC сформировал несовместимое описание видеопотока. Повторите звонок после перезапуска приложения."
         case .incompatibleRemoteDescription:
-            return "Ответ на видеозвонок содержит другой набор аудио/видео потоков. Обновите клиент собеседника или повторите аудиозвонок."
+            return
+                "Ответ на видеозвонок содержит другой набор аудио/видео потоков. Обновите клиент собеседника или повторите аудиозвонок."
         case .sdpGenerationFailed:
             return "Не удалось согласовать параметры аудио/видео."
         case .connectionLost:

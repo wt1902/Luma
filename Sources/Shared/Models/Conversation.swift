@@ -1,13 +1,14 @@
 import Foundation
+import SwiftData
 
-struct Conversation: Codable, Identifiable, Hashable, Sendable {
-    enum Kind: String, Codable, Sendable {
+@Model
+final class Conversation {
+    enum Kind: String, Codable {
         case direct
         case group
     }
 
-    let id: String
-    var jid: String
+    @Attribute(.unique) var jid: String
     var displayName: String
     var lastMessage: String
     var lastActivity: Date
@@ -21,6 +22,9 @@ struct Conversation: Codable, Identifiable, Hashable, Sendable {
     var shouldAutojoin: Bool
     var occupantCount: Int
     var invitedBy: String?
+
+    @Relationship(deleteRule: .cascade, inverse: \ChatMessage.conversation)
+    var messages: [ChatMessage] = []
 
     init(
         jid: String,
@@ -39,7 +43,6 @@ struct Conversation: Codable, Identifiable, Hashable, Sendable {
         invitedBy: String? = nil
     ) {
         let normalized = jid.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        self.id = normalized
         self.jid = normalized
         self.displayName = displayName?.nilIfBlank ?? normalized
         self.lastMessage = lastMessage
@@ -54,46 +57,6 @@ struct Conversation: Codable, Identifiable, Hashable, Sendable {
         self.shouldAutojoin = shouldAutojoin
         self.occupantCount = max(0, occupantCount)
         self.invitedBy = invitedBy?.nilIfBlank
-    }
-
-    private enum CodingKeys: String, CodingKey {
-        case id
-        case jid
-        case displayName
-        case lastMessage
-        case lastActivity
-        case unreadCount
-        case isOnline
-        case isPinned
-        case encryptionPreference
-        case kind
-        case groupNickname
-        case isGroupJoined
-        case shouldAutojoin
-        case occupantCount
-        case invitedBy
-    }
-
-    init(from decoder: Decoder) throws {
-        let values = try decoder.container(keyedBy: CodingKeys.self)
-        jid = try values.decode(String.self, forKey: .jid)
-        id = try values.decodeIfPresent(String.self, forKey: .id) ?? jid.lowercased()
-        displayName = try values.decode(String.self, forKey: .displayName)
-        lastMessage = try values.decode(String.self, forKey: .lastMessage)
-        lastActivity = try values.decode(Date.self, forKey: .lastActivity)
-        unreadCount = try values.decode(Int.self, forKey: .unreadCount)
-        isOnline = try values.decode(Bool.self, forKey: .isOnline)
-        isPinned = try values.decode(Bool.self, forKey: .isPinned)
-        encryptionPreference = try values.decodeIfPresent(
-            EncryptionPreference.self,
-            forKey: .encryptionPreference
-        ) ?? .inheritGlobal
-        kind = try values.decodeIfPresent(Kind.self, forKey: .kind) ?? .direct
-        groupNickname = try values.decodeIfPresent(String.self, forKey: .groupNickname)
-        isGroupJoined = try values.decodeIfPresent(Bool.self, forKey: .isGroupJoined) ?? false
-        shouldAutojoin = try values.decodeIfPresent(Bool.self, forKey: .shouldAutojoin) ?? false
-        occupantCount = max(0, try values.decodeIfPresent(Int.self, forKey: .occupantCount) ?? 0)
-        invitedBy = try values.decodeIfPresent(String.self, forKey: .invitedBy)
     }
 
     var isGroup: Bool { kind == .group }
@@ -113,6 +76,15 @@ struct Conversation: Codable, Identifiable, Hashable, Sendable {
             (partial ^ UInt64(byte)) &* 1_099_511_628_211
         }
     }
+}
+
+/// A row in the cross-account inbox. JID alone is not a stable identity when
+/// two logged-in accounts have the same contact or a self-chat.
+struct AccountConversation: Identifiable {
+    let account: AccountConfiguration
+    let conversation: Conversation
+
+    var id: String { "\(account.normalizedJID)|\(conversation.jid)" }
 }
 
 private extension String {

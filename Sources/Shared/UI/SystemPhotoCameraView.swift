@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 struct CapturedCameraMedia: Sendable {
     let url: URL
@@ -12,6 +13,13 @@ import UIKit
 
 @MainActor
 struct SystemPhotoCameraView: UIViewControllerRepresentable {
+    /// Called synchronously on the main thread inside
+    /// `didFinishPickingMediaWithInfo`, before any background preparation.
+    /// The host must flip its `isPresented` binding here so SwiftUI drives
+    /// the dismissal; letting UIImagePickerController dismiss itself leaves
+    /// the fullScreenCover state desynchronized and breaks the follow-up
+    /// preview presentation.
+    let onDismissRequest: () -> Void
     let onMedia: (Result<CapturedCameraMedia, Error>) -> Void
     let onCancel: () -> Void
 
@@ -20,7 +28,11 @@ struct SystemPhotoCameraView: UIViewControllerRepresentable {
     }
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(onMedia: onMedia, onCancel: onCancel)
+        Coordinator(
+            onDismissRequest: onDismissRequest,
+            onMedia: onMedia,
+            onCancel: onCancel
+        )
     }
 
     func makeUIViewController(context: Context) -> UIImagePickerController {
@@ -42,14 +54,17 @@ struct SystemPhotoCameraView: UIViewControllerRepresentable {
     ) {}
 
     final class Coordinator: NSObject, UIImagePickerControllerDelegate, UINavigationControllerDelegate {
+        private let onDismissRequest: () -> Void
         private let onMedia: (Result<CapturedCameraMedia, Error>) -> Void
         private let onCancel: () -> Void
         private var completed = false
 
         init(
+            onDismissRequest: @escaping () -> Void,
             onMedia: @escaping (Result<CapturedCameraMedia, Error>) -> Void,
             onCancel: @escaping () -> Void
         ) {
+            self.onDismissRequest = onDismissRequest
             self.onMedia = onMedia
             self.onCancel = onCancel
         }
@@ -60,6 +75,7 @@ struct SystemPhotoCameraView: UIViewControllerRepresentable {
         ) {
             guard !completed else { return }
             completed = true
+            onDismissRequest()
 
             let mediaType = (info[.mediaType] as? String).flatMap { UTType($0) }
             if mediaType?.conforms(to: .movie) == true,
@@ -100,29 +116,34 @@ struct SystemPhotoCameraView: UIViewControllerRepresentable {
             }
         }
 
+        /// Claims the picker-owned temporary movie synchronously, while the
+        /// picker is still alive: UIImagePickerController can delete its
+        /// temporary file as soon as it is dismissed, so a background copy
+        /// races that cleanup and fails with an unreadable source. The move
+        /// is a same-volume rename and does not block the main thread.
         private func prepareMovie(from sourceURL: URL) {
-            let completion = onMedia
-            DispatchQueue.global(qos: .userInitiated).async {
-                let result: Result<CapturedCameraMedia, Error>
-                do {
-                    let fileExtension = sourceURL.pathExtension.isEmpty
-                        ? "mov"
-                        : sourceURL.pathExtension
-                    let destination = try Self.destinationURL(extension: fileExtension)
-                    try FileManager.default.copyItem(at: sourceURL, to: destination)
-                    let values = try destination.resourceValues(
-                        forKeys: [.fileSizeKey, .isRegularFileKey]
-                    )
-                    guard values.isRegularFile == true,
-                          (values.fileSize ?? 0) > 0 else {
-                        try? FileManager.default.removeItem(at: destination)
-                        throw SystemCameraError.emptyMovie
-                    }
-                    result = .success(CapturedCameraMedia(url: destination, kind: .video))
-                } catch {
-                    result = .failure(error)
+            let logger = Logger(subsystem: "Luma", category: "video-preview")
+            do {
+                let sourceSize = (try? sourceURL.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? -1
+                logger.info("picker movie ready: source=\(sourceURL.lastPathComponent) size=\(sourceSize)")
+                let fileExtension = sourceURL.pathExtension.isEmpty
+                    ? "mov"
+                    : sourceURL.pathExtension
+                let destination = try Self.destinationURL(extension: fileExtension)
+                try FileManager.default.moveItem(at: sourceURL, to: destination)
+                let values = try destination.resourceValues(
+                    forKeys: [.fileSizeKey, .isRegularFileKey]
+                )
+                let movedSize = values.fileSize ?? 0
+                logger.info("picker movie moved: size=\(movedSize) regular=\(values.isRegularFile == true)")
+                guard values.isRegularFile == true, movedSize > 0 else {
+                    try? FileManager.default.removeItem(at: destination)
+                    throw SystemCameraError.emptyMovie
                 }
-                DispatchQueue.main.async { completion(result) }
+                onMedia(.success(CapturedCameraMedia(url: destination, kind: .video)))
+            } catch {
+                logger.error("picker movie preparation failed: \(error.localizedDescription)")
+                onMedia(.failure(error))
             }
         }
 
@@ -155,5 +176,13 @@ private enum SystemCameraError: LocalizedError {
             return "Камера вернула пустой видеофайл. Повторите запись."
         }
     }
+}
+
+#Preview {
+    SystemPhotoCameraView(
+        onDismissRequest: {},
+        onMedia: { _ in },
+        onCancel: {}
+    )
 }
 #endif

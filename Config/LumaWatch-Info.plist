@@ -27,6 +27,6 @@
 	<key>WKApplication</key>
 	<true/>
 	<key>WKCompanionAppBundleIdentifier</key>
-	<string>app.luma.chat</string>
+	<string>$(COMPANION_BUNDLE_IDENTIFIER)</string>
 </dict>
 </plist>

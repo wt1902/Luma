@@ -24,12 +24,16 @@
 	<string>$(CURRENT_PROJECT_VERSION)</string>
 	<key>NSCameraUsageDescription</key>
 	<string>Luma использует камеру для фотографий, видеосообщений и видеозвонков.</string>
+	<key>NSFaceIDUsageDescription</key>
+	<string>Luma использует Face ID для разблокировки приложения.</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Luma использует локальную сеть для прямого соединения аудио- и видеозвонков.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>Luma использует геопозицию только когда вы выбираете отправку точки в чате.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Luma использует микрофон для голосовых сообщений и звонков.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>Luma сохраняет фотографии и видео в вашу медиатеку.</string>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
 	<key>UIBackgroundModes</key>
@@ -40,6 +44,19 @@
 	</array>
 	<key>UILaunchScreen</key>
 	<dict/>
+	<key>UISupportedInterfaceOrientations</key>
+	<array>
+		<string>UIInterfaceOrientationPortrait</string>
+		<string>UIInterfaceOrientationLandscapeLeft</string>
+		<string>UIInterfaceOrientationLandscapeRight</string>
+	</array>
+	<key>UISupportedInterfaceOrientations~ipad</key>
+	<array>
+		<string>UIInterfaceOrientationPortrait</string>
+		<string>UIInterfaceOrientationPortraitUpsideDown</string>
+		<string>UIInterfaceOrientationLandscapeLeft</string>
+		<string>UIInterfaceOrientationLandscapeRight</string>
+	</array>
 	<key>UISupportsDocumentBrowser</key>
 	<false/>
 </dict>

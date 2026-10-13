@@ -1,6 +1,7 @@
 import AVFoundation
 import Foundation
 import ImageIO
+import os
 import UniformTypeIdentifiers
 
 actor MediaPreviewProcessor {
@@ -44,6 +45,12 @@ actor MediaPreviewProcessor {
         }
 
         let waveform = kind == .voice ? voiceWaveform(for: url) : nil
+        if kind == .video {
+            let logger = Logger(subsystem: "Luma", category: "video-preview")
+            logger.info(
+                "analyze video: \(url.lastPathComponent) duration=\(String(describing: duration)) thumbnailBytes=\(thumbnailData?.count ?? 0)"
+            )
+        }
         return Analysis(
             duration: duration,
             thumbnailData: thumbnailData,
@@ -94,6 +101,8 @@ actor MediaPreviewProcessor {
                     return data
                 }
             } catch {
+                Logger(subsystem: "Luma", category: "video-preview")
+                    .error("image generator failed at \(second)s: \(error.localizedDescription)")
                 continue
             }
         }

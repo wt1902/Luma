@@ -71,3 +71,10 @@ struct InlineVideoPlayer: NSViewRepresentable {
     }
 }
 #endif
+
+#Preview {
+    InlineVideoPlayer(player: AVPlayer())
+        .frame(width: 260, height: 260)
+        .background(Color.black)
+        .clipShape(Circle())
+}

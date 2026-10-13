@@ -1,3 +1,4 @@
+import SwiftData
 import SwiftUI
 
 @MainActor
@@ -10,6 +11,9 @@ struct ForwardMessageView: View {
     @State private var destinationJID = ""
     @State private var isForwarding = false
 
+    /// SwiftData-backed destination list, ordered like the main chat list.
+    @Query private var conversations: [Conversation]
+
     init(
         model: AppModel,
         messages: [ChatMessage],
@@ -18,6 +22,11 @@ struct ForwardMessageView: View {
         _model = ObservedObject(wrappedValue: model)
         self.messages = messages.filter(\.canBeForwarded)
         self.onComplete = onComplete
+        _conversations = Query(
+            sort: [
+                SortDescriptor(\Conversation.lastActivity, order: .reverse),
+            ]
+        )
     }
 
     var body: some View {
@@ -39,9 +48,9 @@ struct ForwardMessageView: View {
                     }
                 }
 
-                if !model.conversations.isEmpty {
+                if !orderedConversations.isEmpty {
                     Section("Чаты") {
-                        ForEach(model.conversations) { conversation in
+                        ForEach(orderedConversations) { conversation in
                             Button {
                                 forward(to: conversation.jid)
                             } label: {
@@ -105,6 +114,14 @@ struct ForwardMessageView: View {
 #endif
     }
 
+    /// Pinned-first ordering, matching the main chat list.
+    private var orderedConversations: [Conversation] {
+        conversations.sorted { lhs, rhs in
+            if lhs.isPinned != rhs.isPinned { return lhs.isPinned }
+            return lhs.lastActivity > rhs.lastActivity
+        }
+    }
+
     private func forward(to jid: String) {
         guard !isForwarding, !messages.isEmpty else { return }
         isForwarding = true
@@ -134,4 +151,20 @@ struct ForwardMessageView: View {
         }
         return "\(count) \(word)"
     }
+}
+
+#Preview {
+    ForwardMessageView(
+        model: PreviewSupport.model,
+        messages: [
+            PreviewSupport.message(body: "Привет! Как дела?"),
+            PreviewSupport.message(
+                senderJID: "me@example.org",
+                body: "Созвонимся вечером?",
+                direction: .outgoing,
+                delivery: .sent
+            ),
+        ]
+    )
+    .modelContainer(PreviewSupport.container)
 }

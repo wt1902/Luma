@@ -4,31 +4,32 @@ import XCTest
 
 final class MessageCorrectionTests: XCTestCase {
     func testOnlyDeliveredOrSentOutgoingTextCanBeEdited() {
-        let editable = ChatMessage(
-            conversationID: "bob@example.org",
-            senderJID: "alice@example.org",
-            body: "До исправления",
-            direction: .outgoing,
-            delivery: .sent,
-            security: .omemo
-        )
-        var incoming = editable
-        incoming.direction = .incoming
-        var attachment = editable
-        attachment.kind = .attachment
-        var failed = editable
-        failed.delivery = .failed
-        var retracted = editable
-        retracted.retractedAt = Date()
+        func make(
+            direction: ChatMessage.Direction = .outgoing,
+            delivery: ChatMessage.Delivery = .sent,
+            kind: ChatMessage.Kind = .text,
+            retractedAt: Date? = nil
+        ) -> ChatMessage {
+            ChatMessage(
+                conversationID: "bob@example.org",
+                senderJID: "alice@example.org",
+                body: "До исправления",
+                direction: direction,
+                delivery: delivery,
+                security: .omemo,
+                kind: kind,
+                retractedAt: retractedAt
+            )
+        }
 
-        XCTAssertTrue(editable.canBeEdited)
-        XCTAssertFalse(incoming.canBeEdited)
-        XCTAssertFalse(attachment.canBeEdited)
-        XCTAssertFalse(failed.canBeEdited)
-        XCTAssertFalse(retracted.canBeEdited)
+        XCTAssertTrue(make().canBeEdited)
+        XCTAssertFalse(make(direction: .incoming).canBeEdited)
+        XCTAssertFalse(make(kind: .attachment).canBeEdited)
+        XCTAssertFalse(make(delivery: .failed).canBeEdited)
+        XCTAssertFalse(make(retractedAt: Date()).canBeEdited)
     }
 
-    func testEditedTimestampRoundTrips() throws {
+    func testEditedTimestampIsStored() {
         let editedAt = Date(timeIntervalSince1970: 1_700_000_000)
         let message = ChatMessage(
             conversationID: "bob@example.org",
@@ -40,30 +41,6 @@ final class MessageCorrectionTests: XCTestCase {
             editedAt: editedAt
         )
 
-        let data = try JSONEncoder().encode(message)
-        let decoded = try JSONDecoder().decode(ChatMessage.self, from: data)
-
-        XCTAssertEqual(decoded.editedAt, editedAt)
-    }
-
-    func testLegacyMessageWithoutEditedTimestampStillDecodes() throws {
-        let message = ChatMessage(
-            conversationID: "bob@example.org",
-            senderJID: "alice@example.org",
-            body: "Старое сообщение",
-            direction: .incoming,
-            delivery: .delivered,
-            security: .omemo
-        )
-        let encoded = try JSONEncoder().encode(message)
-        var object = try XCTUnwrap(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
-        object.removeValue(forKey: "editedAt")
-
-        let decoded = try JSONDecoder().decode(
-            ChatMessage.self,
-            from: JSONSerialization.data(withJSONObject: object)
-        )
-
-        XCTAssertNil(decoded.editedAt)
+        XCTAssertEqual(message.editedAt, editedAt)
     }
 }

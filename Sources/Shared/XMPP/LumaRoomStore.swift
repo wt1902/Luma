@@ -1,8 +1,6 @@
 import Foundation
 import Martin
 
-/// Martin 3.2.4 does not expose `DefaultRoomStore.init()` outside its module.
-/// This mirrors its in-memory behavior so the app can register XEP-0045 MUC.
 final class LumaRoomStore: RoomStore {
     typealias Room = RoomBase
 

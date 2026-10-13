@@ -14,8 +14,29 @@ final class AccountConfigurationTests: XCTestCase {
 
         XCTAssertEqual(validated.normalizedJID, "alice@example.org")
         XCTAssertEqual(validated.domain, "example.org")
-        XCTAssertEqual(validated.effectiveResource, "Luma")
+        XCTAssertTrue(validated.effectiveResource.hasPrefix("Luma-"))
+        XCTAssertNotEqual(validated.effectiveResource, DeviceResource.legacyDefault)
+        XCTAssertEqual(validated.effectiveResource, DeviceResource.default)
         XCTAssertEqual(validated.manualHost, "xmpp.example.org")
+    }
+
+    func testLegacyDefaultResourceIsMigratedToAUniqueDeviceResource() throws {
+        let account = try AccountConfiguration(
+            jid: "alice@example.org",
+            resource: "Luma"
+        ).validated()
+
+        XCTAssertTrue(account.effectiveResource.hasPrefix("Luma-"))
+        XCTAssertNotEqual(account.effectiveResource, "Luma")
+    }
+
+    func testExplicitResourceIsPreserved() throws {
+        let account = try AccountConfiguration(
+            jid: "alice@example.org",
+            resource: "  MyDevice  "
+        ).validated()
+
+        XCTAssertEqual(account.effectiveResource, "MyDevice")
     }
 
     func testInvalidJIDIsRejected() {

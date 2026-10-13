@@ -13,6 +13,7 @@ struct VideoNoteCaptureView: View {
     @StateObject private var recorder = VideoNoteRecorder()
     @State private var errorMessage: String?
     @State private var isFinalizing = false
+    @State private var isSwitchingCamera = false
 
     let onComplete: (VideoNoteRecorder.Recording) -> Void
 
@@ -32,6 +33,26 @@ struct VideoNoteCaptureView: View {
                 .frame(maxWidth: 420)
                 .aspectRatio(1, contentMode: .fit)
                 .overlay(Circle().stroke(.white.opacity(0.16), lineWidth: 1))
+                #if os(iOS)
+                    .overlay(alignment: .bottomTrailing) {
+                        if recorder.hasAlternateCamera, recorder.isPrepared {
+                            Button(action: flipCamera) {
+                                Image(
+                                    systemName:
+                                        "arrow.triangle.2.circlepath.camera.fill"
+                                )
+                                .font(.system(size: 19, weight: .semibold))
+                                .foregroundStyle(.white)
+                                .padding(10)
+                                .background(.ultraThinMaterial, in: Circle())
+                            }
+                            .buttonStyle(.plain)
+                            .padding(14)
+                            .disabled(isSwitchingCamera || isFinalizing)
+                            .accessibilityLabel("Переключить камеру")
+                        }
+                    }
+                #endif
 
                 Text(recordingStatus)
                     .font(.system(.title3, design: .monospaced).weight(.semibold))
@@ -120,6 +141,19 @@ struct VideoNoteCaptureView: View {
 #endif
     }
 
+    private func flipCamera() {
+        guard !isSwitchingCamera, !isFinalizing else { return }
+        isSwitchingCamera = true
+        Task { @MainActor in
+            do {
+                try await recorder.switchCamera()
+            } catch {
+                errorMessage = error.localizedDescription
+            }
+            isSwitchingCamera = false
+        }
+    }
+
     private func formatted(_ duration: TimeInterval) -> String {
         let seconds = max(0, Int(duration.rounded(.down)))
         return String(format: "%d:%02d", seconds / 60, seconds % 60)
@@ -190,3 +224,7 @@ struct CameraPreview: NSViewRepresentable {
     }
 }
 #endif
+
+#Preview {
+    VideoNoteCaptureView { _ in }
+}

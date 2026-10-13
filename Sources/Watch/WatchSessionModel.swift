@@ -48,7 +48,7 @@ final class WatchSessionModel: NSObject, ObservableObject {
         let payload: [String: Any] = [
             "action": "reply",
             "jid": jid,
-            "text": text
+            "text": text,
         ]
 
         if session.isReachable {
@@ -70,12 +70,15 @@ final class WatchSessionModel: NSObject, ObservableObject {
             errorMessage = "Соединение с iPhone ещё не готово. Повторите через несколько секунд."
             return false
         }
-        guard session.isCompanionAppInstalled else {
-            errorMessage = "Установите Luma на связанный iPhone."
-            return false
-        }
+        #if os(watchOS)
+            guard session.isCompanionAppInstalled else {
+                errorMessage = "Установите Luma на связанный iPhone."
+                return false
+            }
+        #endif
         guard duration.isFinite, duration >= 0.4,
-              FileManager.default.fileExists(atPath: fileURL.path) else {
+            FileManager.default.fileExists(atPath: fileURL.path)
+        else {
             errorMessage = "Запись голосового сообщения недоступна."
             return false
         }
@@ -87,7 +90,7 @@ final class WatchSessionModel: NSObject, ObservableObject {
             "transferID": transferID,
             "jid": normalizedJID,
             "filename": fileURL.lastPathComponent,
-            "duration": duration
+            "duration": duration,
         ]
         outgoingVoiceTransfers[transferID] = OutgoingVoiceTransfer(
             jid: normalizedJID,
@@ -119,8 +122,9 @@ final class WatchSessionModel: NSObject, ObservableObject {
 
     private func consume(_ payload: [String: Any]) {
         guard payload["action"] as? String == "voiceResult",
-              let transferID = payload["transferID"] as? String,
-              let success = payload["success"] as? Bool else { return }
+            let transferID = payload["transferID"] as? String,
+            let success = payload["success"] as? Bool
+        else { return }
 
         let transfer = outgoingVoiceTransfers.removeValue(forKey: transferID)
         let jid = transfer?.jid ?? (payload["jid"] as? String)?.lowercased()
@@ -134,7 +138,8 @@ final class WatchSessionModel: NSObject, ObservableObject {
             voiceStatusByJID[jid] = "Голосовое отправлено"
         } else {
             voiceStatusByJID[jid] = "Голосовое не отправлено"
-            errorMessage = (payload["error"] as? String) ?? "iPhone не смог отправить голосовое сообщение."
+            errorMessage =
+                (payload["error"] as? String) ?? "iPhone не смог отправить голосовое сообщение."
         }
     }
 
@@ -144,7 +149,8 @@ final class WatchSessionModel: NSObject, ObservableObject {
         errorDescription: String?
     ) {
         guard let transferID,
-              let transfer = outgoingVoiceTransfers[transferID] else {
+            let transfer = outgoingVoiceTransfers[transferID]
+        else {
             try? FileManager.default.removeItem(at: fallbackURL)
             return
         }
@@ -165,10 +171,11 @@ final class WatchSessionModel: NSObject, ObservableObject {
 
     private func loadOutgoingVoiceTransfers() {
         guard let data = UserDefaults.standard.data(forKey: voiceTransferCacheKey),
-              let stored = try? JSONDecoder().decode(
+            let stored = try? JSONDecoder().decode(
                 [String: OutgoingVoiceTransfer].self,
                 from: data
-              ) else { return }
+            )
+        else { return }
         let expiration = Date().addingTimeInterval(-7 * 24 * 60 * 60)
         outgoingVoiceTransfers = stored.filter { $0.value.createdAt >= expiration }
         for transfer in outgoingVoiceTransfers.values {
@@ -204,11 +211,19 @@ extension WatchSessionModel: WCSessionDelegate {
         }
     }
 
+    // nonisolated func sessionDidDeactivate(_ session: WCSession) {
+    //     Task { @MainActor in
+    //         phoneReachable = false
+    //     }
+    // }
+
     nonisolated func sessionReachabilityDidChange(_ session: WCSession) {
         Task { @MainActor in phoneReachable = session.isReachable }
     }
 
-    nonisolated func session(_ session: WCSession, didReceiveApplicationContext applicationContext: [String: Any]) {
+    nonisolated func session(
+        _ session: WCSession, didReceiveApplicationContext applicationContext: [String: Any]
+    ) {
         guard let data = applicationContext["snapshot"] as? Data else { return }
         Task { @MainActor in apply(data: data) }
     }

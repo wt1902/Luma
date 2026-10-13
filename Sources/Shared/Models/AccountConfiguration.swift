@@ -22,7 +22,10 @@ struct AccountConfiguration: Codable, Equatable, Hashable, Identifiable, Sendabl
 
     var effectiveResource: String {
         let trimmed = resource.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? "Luma" : trimmed
+        if trimmed.isEmpty || trimmed == DeviceResource.legacyDefault {
+            return DeviceResource.default
+        }
+        return trimmed
     }
 
     init(

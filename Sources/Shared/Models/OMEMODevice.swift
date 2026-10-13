@@ -14,8 +14,14 @@ struct OMEMODevice: Identifiable, Hashable, Sendable {
     let trust: Trust
     let isActive: Bool
     let isOwn: Bool
+    let isOMEMO2: Bool
 
-    var id: String { "\(jid)|\(deviceID)" }
+    var id: String { "\(jid)|\(deviceID)|\(isOMEMO2 ? "omemo2" : "legacy")" }
+
+    /// Short protocol label for the encryption screen badge.
+    var protocolName: String {
+        isOMEMO2 ? "OMEMO 2" : "OMEMO"
+    }
 
     var formattedFingerprint: String {
         fingerprint.chunked(every: 8).joined(separator: " ")

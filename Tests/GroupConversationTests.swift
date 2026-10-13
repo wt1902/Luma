@@ -3,7 +3,7 @@ import XCTest
 @testable import Luma
 
 final class GroupConversationTests: XCTestCase {
-    func testGroupConversationRoundTrips() throws {
+    func testGroupConversationProperties() {
         let conversation = Conversation(
             jid: "team@conference.example.org",
             displayName: "Команда",
@@ -16,33 +16,11 @@ final class GroupConversationTests: XCTestCase {
             invitedBy: "bob@example.org"
         )
 
-        let decoded = try JSONDecoder().decode(
-            Conversation.self,
-            from: JSONEncoder().encode(conversation)
-        )
-
-        XCTAssertTrue(decoded.isGroup)
-        XCTAssertEqual(decoded.groupNickname, "Alice")
-        XCTAssertEqual(decoded.occupantCount, 4)
-        XCTAssertEqual(decoded.invitedBy, "bob@example.org")
-    }
-
-    func testLegacyConversationDefaultsToDirect() throws {
-        let conversation = Conversation(jid: "bob@example.org", displayName: "Bob")
-        let encoded = try JSONEncoder().encode(conversation)
-        var object = try XCTUnwrap(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
-        for key in ["kind", "groupNickname", "isGroupJoined", "shouldAutojoin", "occupantCount", "invitedBy"] {
-            object.removeValue(forKey: key)
-        }
-
-        let decoded = try JSONDecoder().decode(
-            Conversation.self,
-            from: JSONSerialization.data(withJSONObject: object)
-        )
-
-        XCTAssertFalse(decoded.isGroup)
-        XCTAssertFalse(decoded.isGroupJoined)
-        XCTAssertEqual(decoded.occupantCount, 0)
+        XCTAssertTrue(conversation.isGroup)
+        XCTAssertEqual(conversation.groupNickname, "Alice")
+        XCTAssertEqual(conversation.occupantCount, 4)
+        XCTAssertEqual(conversation.invitedBy, "bob@example.org")
+        XCTAssertEqual(conversation.encryptionPreference, .disabled)
     }
 
     func testNewGroupInheritsGlobalEncryptionByDefault() {
@@ -52,5 +30,6 @@ final class GroupConversationTests: XCTestCase {
         )
 
         XCTAssertEqual(conversation.encryptionPreference, .inheritGlobal)
+        XCTAssertTrue(conversation.isGroup)
     }
 }

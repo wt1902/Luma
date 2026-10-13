@@ -2,13 +2,13 @@ import XCTest
 @testable import Luma
 
 final class ArchiveMessageBatchPolicyTests: XCTestCase {
-    func testMamPagesStaySmallEnoughForInteractiveUI() {
-        XCTAssertLessThanOrEqual(ArchiveMessageBatchPolicy.pageSize, 32)
-        XCTAssertGreaterThan(ArchiveMessageBatchPolicy.pageSize, 0)
+    func testInteractivePageSize() {
+        XCTAssertEqual(ArchiveMessageBatchPolicy.pageSize, 40)
     }
 
-    func testOnlyOneStanzaIsDecodedPerMainActorSlice() {
-        XCTAssertEqual(ArchiveMessageBatchPolicy.decodeSliceSize, 1)
+    func testStanzasAreDecodedInSmallBatchesPerMainActorSlice() {
+        XCTAssertGreaterThan(ArchiveMessageBatchPolicy.decodeSliceSize, 0)
+        XCTAssertLessThanOrEqual(ArchiveMessageBatchPolicy.decodeSliceSize, 16)
         XCTAssertGreaterThan(ArchiveMessageBatchPolicy.interSliceDelayNanoseconds, 0)
     }
 

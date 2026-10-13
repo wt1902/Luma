@@ -1,4 +1,5 @@
 import Foundation
+import os
 import SwiftUI
 
 #if os(iOS)
@@ -239,7 +240,13 @@ struct AttachmentPreviewView: View {
         thumbnailImages = thumbnailImages.filter { retainedIDs.contains($0.key) }
         for draft in drafts where thumbnailImages[draft.id] == nil {
             guard let data = draft.thumbnailData,
-                  let image = DraftThumbnailImage(data: data) else { continue }
+                  let image = DraftThumbnailImage(data: data) else {
+                if draft.kind == .video {
+                    Logger(subsystem: "Luma", category: "video-preview")
+                        .warning("video draft has no decodable thumbnail: \(draft.filename) thumbnailBytes=\(draft.thumbnailData?.count ?? 0)")
+                }
+                continue
+            }
             thumbnailImages[draft.id] = image
             await Task.yield()
         }
@@ -290,4 +297,20 @@ struct AttachmentPreviewView: View {
             }
         }
     }
+}
+
+private struct AttachmentPreviewHost: View {
+    @State private var drafts = PreviewSupport.drafts()
+
+    var body: some View {
+        AttachmentPreviewView(
+            model: PreviewSupport.model,
+            conversation: PreviewSupport.conversation(displayName: "Алиса"),
+            drafts: $drafts
+        )
+    }
+}
+
+#Preview {
+    AttachmentPreviewHost()
 }

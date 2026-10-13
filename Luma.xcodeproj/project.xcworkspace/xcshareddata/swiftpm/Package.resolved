@@ -1,5 +1,4 @@
 {
-  "originHash" : "a9b7decfad90e115a57d2c941faf30bf1f041c5fcd0d87ea51c92b76dfac7ca8",
   "pins" : [
     {
       "identity" : "libsignal",
@@ -20,12 +19,12 @@
       }
     },
     {
-      "identity" : "martinomemo",
+      "identity" : "openssl",
       "kind" : "remoteSourceControl",
-      "location" : "https://github.com/tigase/MartinOMEMO.git",
+      "location" : "https://github.com/krzyzanowskim/OpenSSL.git",
       "state" : {
-        "revision" : "3c162154d646aa258c9a86c0a07655a536e55a94",
-        "version" : "2.2.3"
+        "revision" : "4b1188ba947ddc23d03b13096b9e44b804e146c9",
+        "version" : "3.6.3000"
       }
     },
     {
@@ -47,5 +46,5 @@
       }
     }
   ],
-  "version" : 3
+  "version" : 2
 }

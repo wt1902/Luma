@@ -45,6 +45,7 @@ struct MediaViewer: View {
     @State private var isTrackingDismissGesture = false
     @State private var isCompletingDismissal = false
     @State private var isPhotoZoomed = false
+    @State private var saveErrorMessage: String?
 
     var body: some View {
         GeometryReader { geometry in
@@ -58,13 +59,24 @@ struct MediaViewer: View {
                         .ignoresSafeArea(edges: .bottom)
 
                     VStack(spacing: 0) {
+                        Spacer()
                         HStack {
-                            Text(item.title)
-                                .font(.headline)
-                                .foregroundStyle(.white)
-                                .lineLimit(1)
+//                            Text(item.title)
+//                                .font(.headline)
+//                                .foregroundStyle(.white)
+//                                .lineLimit(1)
 
                             Spacer()
+
+                            Button(action: save) {
+                                Image(systemName: "square.and.arrow.down")
+                                    .font(.system(size: 17, weight: .semibold))
+                                    .foregroundStyle(.white)
+                                    .frame(width: 36, height: 36)
+                                    .background(.white.opacity(0.16), in: Circle())
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel("Сохранить")
                         }
                         .padding(.horizontal, 16)
                         .padding(.top, 12)
@@ -77,8 +89,6 @@ struct MediaViewer: View {
                             )
                             .ignoresSafeArea()
                         )
-
-                        Spacer()
                     }
                 }
                 .offset(y: dragOffset)
@@ -95,6 +105,11 @@ struct MediaViewer: View {
             }
             .accessibilityAction(.escape) {
                 closeImmediately()
+            }
+            .alert("Ошибка сохранения", isPresented: saveErrorBinding) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text(saveErrorMessage ?? "Не удалось сохранить медиа.")
             }
         }
 #if os(macOS)
@@ -181,6 +196,27 @@ struct MediaViewer: View {
         guard !isCompletingDismissal else { return }
         isCompletingDismissal = true
         onClose()
+    }
+
+    private var saveErrorBinding: Binding<Bool> {
+        Binding(
+            get: { saveErrorMessage != nil },
+            set: { visible in if !visible { saveErrorMessage = nil } }
+        )
+    }
+
+    private func save() {
+        Task {
+            do {
+                try await MediaDownloadService.save(
+                    url: item.url,
+                    kind: item.kind,
+                    filename: item.title
+                )
+            } catch {
+                saveErrorMessage = error.localizedDescription
+            }
+        }
     }
 
     private func dismissalProgress(in containerHeight: CGFloat) -> CGFloat {
@@ -360,4 +396,16 @@ private struct ZoomablePhotoView: View {
             }
         }
     }
+}
+
+#Preview {
+    MediaViewer(
+        item: MediaViewerItem(
+            id: "preview",
+            url: URL(fileURLWithPath: "/tmp/preview-photo.jpg"),
+            kind: .photo,
+            title: "IMG_1234.jpg"
+        ),
+        onClose: {}
+    )
 }

@@ -2,10 +2,12 @@ import SwiftUI
 
 struct LoginView: View {
     @ObservedObject var model: AppModel
+    @Environment(\.dismiss) private var dismiss
     @State private var jid = ""
     @State private var password = ""
+    @State private var passwordVisible = false
     @State private var displayName = ""
-    @State private var resource = "Luma"
+    @State private var resource = ""
     @State private var showAdvanced = false
     @State private var manualHost = ""
     @State private var manualPort = ""
@@ -17,7 +19,7 @@ struct LoginView: View {
                 colors: [
                     Color(red: 0.08, green: 0.38, blue: 0.78),
                     Color(red: 0.12, green: 0.62, blue: 0.96),
-                    Color(red: 0.44, green: 0.84, blue: 0.96)
+                    Color(red: 0.44, green: 0.84, blue: 0.96),
                 ],
                 startPoint: .topLeading,
                 endPoint: .bottomTrailing
@@ -76,32 +78,85 @@ struct LoginView: View {
                 Text("XMPP-аккаунт")
                     .font(.headline)
                 TextField("you@example.org", text: $jid)
-                    .textFieldStyle(.roundedBorder)
+                    #if os(iOS)
+                        .keyboardType(.emailAddress)
+                        .textInputAutocapitalization(.never)
+                    #endif
+                    .textContentType(.username)
+                    .autocorrectionDisabled()
+                    .textFieldStyle(.plain)
                     .disableAutocorrection(true)
+                    .padding()
+                    .glassEffect()
             }
 
             VStack(alignment: .leading, spacing: 7) {
                 Text("Пароль")
                     .font(.headline)
-                SecureField("Пароль", text: $password)
+                HStack(spacing: 8) {
+                    Group {
+                        if passwordVisible {
+                            TextField("Пароль", text: $password)
+                                .textContentType(.oneTimeCode)
+                                .textFieldStyle(.plain)
+                        } else {
+                            SecureField("Пароль", text: $password)
+                                .textContentType(.password)
+                                .textFieldStyle(.plain)
+                        }
+                    }
+                    .autocorrectionDisabled()
+                    #if os(iOS)
+                    .textInputAutocapitalization(.never)
+                    #endif
                     .textFieldStyle(.roundedBorder)
+
+                    Button {
+                        passwordVisible.toggle()
+                    } label: {
+                        Image(systemName: passwordVisible ? "eye.slash.fill" : "eye.fill")
+                            .foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(passwordVisible ? "Скрыть пароль" : "Показать пароль")
+                }
+                .padding()
+                .glassEffect()
             }
 
             DisclosureGroup("Дополнительные настройки", isExpanded: $showAdvanced) {
                 VStack(spacing: 14) {
                     TextField("Отображаемое имя", text: $displayName)
-                        .textFieldStyle(.roundedBorder)
-                    TextField("Ресурс устройства", text: $resource)
-                        .textFieldStyle(.roundedBorder)
+                        .textFieldStyle(.plain)
+                        .padding()
+                        .glassEffect()
+                    TextField("Автоматически (Luma-XXXX)", text: $resource)
+                        .textFieldStyle(.plain)
+                        .padding()
+                        .glassEffect()
+                    Text(
+                        "Оставьте пустым — Luma создаст уникальный ресурс для этого устройства, чтобы macOS и iOS не конфликтовали между собой."
+                    )
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                     TextField("Сервер вручную (необязательно)", text: $manualHost)
-                        .textFieldStyle(.roundedBorder)
-                    TextField(directTLS ? "Порт, обычно 5223" : "Порт, обычно 5222", text: $manualPort)
-                        .textFieldStyle(.roundedBorder)
+                        .textFieldStyle(.plain)
+                        .padding()
+                        .glassEffect()
+                    TextField(
+                        directTLS ? "Порт, обычно 5223" : "Порт, обычно 5222", text: $manualPort
+                    )
+                    .textFieldStyle(.plain)
+                    .padding()
+                    .glassEffect()
                     Toggle("Direct TLS", isOn: $directTLS)
-                    Text("Без ручного адреса Luma использует DNS SRV и автоматически выбирает STARTTLS/direct TLS.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .toggleStyle(.switch)
+                    Text(
+                        "Без ручного адреса Luma использует DNS SRV и автоматически выбирает STARTTLS/direct TLS."
+                    )
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 .padding(.top, 14)
             }
@@ -119,14 +174,17 @@ struct LoginView: View {
                 .frame(maxWidth: .infinity)
                 .frame(height: 34)
             }
-            .buttonStyle(.borderedProminent)
+            .buttonStyle(.glassProminent)
             .controlSize(.large)
             .disabled(model.isAuthenticating)
 
-            Label("Сообщения отправляются с OMEMO. Пароль хранится только в Keychain.", systemImage: "lock.shield.fill")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
+            Label(
+                "Сообщения отправляются с OMEMO. Пароль хранится только в Keychain.",
+                systemImage: "lock.shield.fill"
+            )
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .multilineTextAlignment(.center)
         }
         .padding(26)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 28, style: .continuous))
@@ -144,6 +202,16 @@ struct LoginView: View {
             usesDirectTLS: directTLS
         )
         await model.signIn(account: account, password: password)
+
+        // When LoginView is presented from Settings, close the sheet only
+        // after AppModel has completed a successful sign-in. On failure the
+        // model clears the active account, so the form remains available for
+        // correcting the credentials.
+        guard model.account?.normalizedJID == account.normalizedJID else { return }
+        dismiss()
     }
 }
 
+#Preview {
+    LoginView(model: PreviewSupport.model)
+}

@@ -18,12 +18,14 @@ required=(
   Sources/Shared/Models/ArchiveSyncRecoveryPolicy.swift
   Sources/Shared/Models/ArchiveSyncWorkBudget.swift
   Sources/Shared/Models/ArchiveMessageBatchPolicy.swift
+  Sources/Shared/Models/OlderHistoryScrollPolicy.swift
   Sources/Shared/Models/ChatScrollPositionPolicy.swift
   Sources/Shared/Models/ChatTimelineEntry.swift
   Sources/Shared/Models/ChatTypingPolicy.swift
   Sources/Shared/Models/MessageReaction.swift
   Sources/Shared/Models/MediaPickerSelectionPolicy.swift
   Sources/Shared/Models/VideoNoteRecordingCompletionPolicy.swift
+  Sources/Shared/Models/VideoNoteRotationPolicy.swift
   Sources/Shared/Models/VideoNoteRecordingLifecycle.swift
   Sources/Shared/Models/MessageReplySwipePolicy.swift
   Sources/Shared/Models/MessageReplyFallback.swift
@@ -66,6 +68,7 @@ required=(
   Tests/MediaViewerDismissGestureTests.swift
   Tests/ArchiveSyncCheckpointTests.swift
   Tests/ArchiveSyncPaginationTests.swift
+  Tests/OlderHistoryScrollPolicyTests.swift
   Tests/ArchiveSyncRecoveryPolicyTests.swift
   Tests/ArchiveSyncWorkBudgetTests.swift
   Tests/ArchiveMessageBatchPolicyTests.swift
@@ -77,9 +80,34 @@ required=(
   Tests/MediaPickerSelectionPolicyTests.swift
   Tests/VideoNoteRecordingCompletionPolicyTests.swift
   Tests/VideoNoteRecordingLifecycleTests.swift
+  Tests/VideoNoteRotationPolicyTests.swift
   Tests/VideoNoteStopPolicyTests.swift
   Tests/MessageReplySwipeTests.swift
   Tests/WatchVoiceMessageTests.swift
+  Tests/ArchiveStoreTests.swift
+  Tests/SASLprepTests.swift
+  Tests/SaslFailureMessageTests.swift
+  Tests/MediaPreviewProcessorVideoTests.swift
+  Tests/SCRAMSHA512Tests.swift
+  Tests/AppLockPolicyTests.swift
+  Tests/CallHistorySyncTests.swift
+  Tests/ReadStateSyncTests.swift
+  Tests/ChatMessageDeliveryTests.swift
+  UITests/TimelineUITests.swift
+  Sources/Shared/XMPP/LumaScramSha512Mechanism.swift
+  Sources/Shared/XMPP/CallHistorySync.swift
+  Sources/Shared/XMPP/ReadStateSync.swift
+  Sources/Shared/Security/AppLockVault.swift
+  Sources/Shared/Models/AppLockPolicy.swift
+  Sources/Shared/UI/AppLockView.swift
+  Sources/Shared/XMPP/SASLprep.swift
+  Sources/Shared/XMPP/LumaSaslFailureModule.swift
+  Sources/Shared/XMPP/SaslFailureMessage.swift
+  Sources/Shared/Models/ChatMessage.swift
+  Sources/Shared/Models/Conversation.swift
+  Sources/Shared/Persistence/ArchiveStore.swift
+  Sources/Shared/Persistence/ArchiveMetadataRecord.swift
+  Sources/Shared/Persistence/LegacyArchiveImporter.swift
   Brand/LumaIcon-1024.png
   Resources/AppAssets.xcassets/AppIcon.appiconset/Contents.json
   Regenerate-Luma-Project.command
@@ -141,7 +169,7 @@ test "$(grep -c -- '- package: WebRTC' project.yml)" -eq 2 || {
   exit 1
 }
 
-if grep -R -q 'ChatBubbleShape\|maximumMediaSize\|25 МБ' Sources/Shared; then
+if grep -R -q 'ChatBubbleTailShape\|maximumMediaSize\|25 МБ' Sources/Shared; then
   echo "Legacy bubble tails or the old client attachment limit are still present"
   exit 1
 fi
@@ -225,6 +253,10 @@ grep -q 'archiveWorkBudget.recordCompletedPage' Sources/Shared/XMPP/XMPPService.
   echo "Incremental MAM passes must have a finite foreground work budget"
   exit 1
 }
+grep -q 'OlderHistoryScrollPolicy.page(' Sources/Shared/XMPP/XMPPService.swift || {
+  echo "Interactive history paging must advance via the server's RSM first cursor"
+  exit 1
+}
 if grep -q 'scheduleArchiveRestart\|restartDelayNanoseconds' Sources/Shared/XMPP/XMPPService.swift; then
   echo "Failed MAM queries must not restart themselves indefinitely"
   exit 1
@@ -249,12 +281,244 @@ grep -q 'applyArchiveBatch(mutations)' Sources/Shared/Models/AppModel.swift || {
   echo "MAM mutations must be applied atomically before publishing SwiftUI state"
   exit 1
 }
-grep -q 'decodeSliceSize = 1' Sources/Shared/Models/ArchiveMessageBatchPolicy.swift || {
-  echo "MAM decoding must remain limited to one stanza per main-actor slice"
+grep -q 'decodeSliceSize = 8' Sources/Shared/Models/ArchiveMessageBatchPolicy.swift || {
+  echo "MAM decoding must stay batched in small per-slice groups"
   exit 1
 }
-grep -q 'lastSuccessfulMAMCursor' Sources/Shared/Persistence/ChatArchive.swift || {
-  echo "The durable archive snapshot must persist the XEP-0313 UID cursor"
+grep -q 'lastSuccessfulMAMCursor' Sources/Shared/Persistence/ArchiveStore.swift || {
+  echo "The durable archive store must persist the XEP-0313 UID cursor"
+  exit 1
+}
+if test -f Sources/Shared/Persistence/ChatArchive.swift; then
+  echo "The legacy JSON ChatArchive actor must stay removed"
+  exit 1
+fi
+grep -q '@Query' Sources/Shared/UI/MainTabView.swift || {
+  echo "Chat list must be SwiftData @Query-driven"
+  exit 1
+}
+grep -q 'NavigationSplitView' Sources/Shared/UI/MainTabView.swift || {
+  echo "macOS must keep the Telegram Desktop-style split view"
+  exit 1
+}
+grep -q 'SearchField' Sources/Shared/UI/MainTabView.swift || {
+  echo "Search fields must stay inline above the lists"
+  exit 1
+}
+grep -q 'TabView(selection:' Sources/Shared/UI/MainTabView.swift || {
+  echo "The iOS main screen must use the native TabView tab bar"
+  exit 1
+}
+grep -q 'toolbar(.hidden, for: .tabBar)' Sources/Shared/UI/ChatView.swift || {
+  echo "The tab bar must be hidden inside a pushed chat"
+  exit 1
+}
+grep -q 'PhoneWatchMessageData' Sources/Shared/Services/PhoneWatchBridge.swift || {
+  echo "The watch bridge must snapshot SwiftData models on the main actor"
+  exit 1
+}
+grep -q 'urn:xmpp:omemo:2' Sources/Shared/XMPP/LumaOMEMO2Module.swift || {
+  echo "OMEMO 2 must be implemented by the app-level module"
+  exit 1
+}
+grep -q 'decodeOmemo2OffMain' Sources/Shared/XMPP/XMPPService.swift || {
+  echo "Incoming messages must route OMEMO 2 payloads to the OMEMO 2 module"
+  exit 1
+}
+grep -q 'XCLocalSwiftPackageReference "ThirdParty/MartinOMEMO"' Luma.xcodeproj/project.pbxproj || {
+  echo "The vendored MartinOMEMO package must stay linked in the generated project (run make project)"
+  exit 1
+}
+grep -q '@Query' Sources/Shared/UI/ChatView.swift || {
+  echo "Chat timeline must be SwiftData @Query-driven"
+  exit 1
+}
+grep -q '@Query' Sources/Shared/UI/ForwardMessageView.swift || {
+  echo "Forward destination list must be SwiftData @Query-driven"
+  exit 1
+}
+grep -q '\.modelContext' Sources/Shared/UI/RootView.swift || {
+  echo "RootView must inject the SwiftData ModelContext"
+  exit 1
+}
+grep -q 'modelContext.delete(message)' Sources/Shared/Models/AppModel.swift || {
+  echo "Local message deletion must remove the SwiftData row"
+  exit 1
+}
+grep -q 'purgeLocallyDeletedMessages' Sources/Shared/Persistence/ArchiveStore.swift || {
+  echo "ArchiveStore must purge locally deleted rows for @Query views"
+  exit 1
+}
+grep -q 'completeUntilFirstUserAuthentication' Sources/Shared/Persistence/ArchiveStore.swift || {
+  echo "The SwiftData store must keep the data protection attribute"
+  exit 1
+}
+grep -q 'SASLprep' Sources/Shared/XMPP/XMPPService.swift || {
+  echo "SCRAM passwords must be RFC 4013 (SASLprep) normalized"
+  exit 1
+}
+grep -q 'LumaSaslFailureModule' Sources/Shared/XMPP/XMPPService.swift || {
+  echo "The raw SASL failure condition must be captured for the UI"
+  exit 1
+}
+grep -q 'Сервер отклонил имя пользователя или пароль' Sources/Shared/XMPP/SaslFailureMessage.swift || {
+  echo "SASL failures must produce an actionable Russian message"
+  exit 1
+}
+grep -q "doesn't match the one we calculated" Sources/Shared/XMPP/SaslFailureMessage.swift || {
+  echo "Prosody SCRAM proof mismatches must be explained in Russian"
+  exit 1
+}
+grep -q 'passwordVisible' Sources/Shared/UI/LoginView.swift || {
+  echo "The login screen must let the user verify the typed password"
+  exit 1
+}
+grep -q 'SCRAM-SHA-512' Sources/Shared/XMPP/LumaScramSha512Mechanism.swift || {
+  echo "The SCRAM-SHA-512 mechanism must be available"
+  exit 1
+}
+grep -q 'LumaScramSha512Mechanism(channelBindingStore: channelBindingStore)' Sources/Shared/XMPP/XMPPService.swift || {
+  echo "SCRAM-SHA-512 must be registered ahead of Martin's mechanisms"
+  exit 1
+}
+grep -q 'NSFaceIDUsageDescription' project.yml || {
+  echo "Biometric unlock must declare its usage description"
+  exit 1
+}
+grep -q 'unlockWithBiometrics' Sources/Shared/Models/AppModel.swift || {
+  echo "The app lock must support biometric unlock"
+  exit 1
+}
+grep -q 'AppLockView' Sources/Shared/UI/RootView.swift || {
+  echo "The lock screen must cover every app layer"
+  exit 1
+}
+grep -q 'Блокировка приложения' Sources/Shared/UI/SettingsView.swift || {
+  echo "Settings must offer the app lock toggle"
+  exit 1
+}
+grep -q 'https://luma.chat/call-history' Sources/Shared/XMPP/CallHistorySync.swift || {
+  echo "Call history must sync through its service namespace"
+  exit 1
+}
+grep -q 'syncCallHistory' Sources/Shared/Models/AppModel.swift || {
+  echo "Call cards must be synced to the user's other devices"
+  exit 1
+}
+grep -q 'CallHistorySync.envelope' Sources/Shared/XMPP/XMPPService.swift || {
+  echo "Incoming call-history payloads must be intercepted"
+  exit 1
+}
+grep -q 'https://luma.chat/read-marker' Sources/Shared/XMPP/ReadStateSync.swift || {
+  echo "Read state must sync through its service namespace"
+  exit 1
+}
+grep -q 'ReadStateSync.envelope' Sources/Shared/XMPP/XMPPService.swift || {
+  echo "Incoming read-marker payloads must be intercepted"
+  exit 1
+}
+grep -q 'syncReadState' Sources/Shared/Models/AppModel.swift || {
+  echo "Read receipts must be synced to the user's other devices"
+  exit 1
+}
+grep -q 'delivery = \$0.delivery.merged(with: .delivered)' Sources/Shared/Models/AppModel.swift || {
+  echo "Delivery receipts must never downgrade an already read message"
+  exit 1
+}
+if grep -q 'message.body = Self.readMarkerBody' Sources/Shared/XMPP/XMPPService.swift; then
+  echo "Read-marker service stanzas must not carry a plaintext body (it leaks into self-chat on other clients)"
+  exit 1
+fi
+grep -q 'message.isMarkable = true' Sources/Shared/XMPP/XMPPService.swift || {
+  echo "Outgoing 1:1 messages must be <markable/> or peers never answer with <displayed/>"
+  exit 1
+}
+grep -q 'markersPublisher' Sources/Shared/XMPP/XMPPService.swift || {
+  echo "XEP-0333 displayed markers must mark messages as read"
+  exit 1
+}
+grep -q 'markRead(at: index, cameFromPeer: false)' Sources/Shared/Models/AppModel.swift || {
+  echo "Self-chat must mark its own outgoing messages as read locally"
+  exit 1
+}
+grep -q 'case read(conversationJID' Sources/Shared/XMPP/XMPPService.swift || {
+  echo "Read receipts must reference the conversation"
+  exit 1
+}
+grep -q 'merged(with: message.delivery)' Sources/Shared/Models/AppModel.swift || {
+  echo "MAM replays must not downgrade delivered or read state"
+  exit 1
+}
+grep -q 'func deleteGroupChat' Sources/Shared/Models/AppModel.swift || {
+  echo "Group chats must support local deletion"
+  exit 1
+}
+grep -q 'deletedGroupChatJIDs' Sources/Shared/Models/AppModel.swift || {
+  echo "Deleted group chats must stay suppressed for the session"
+  exit 1
+}
+grep -q 'Удалить чат' Sources/Shared/UI/GroupInfoView.swift || {
+  echo "Group info must offer deleting the chat"
+  exit 1
+}
+grep -q 'pendingGroupDeletion' Sources/Shared/UI/MainTabView.swift || {
+  echo "Chat list must offer deleting group chats"
+  exit 1
+}
+grep -q 'pickerResetToken' Sources/Shared/UI/ChatView.swift || {
+  echo "The photo picker must be recreated after each selection"
+  exit 1
+}
+grep -q 'let items = pickedMediaItems' Sources/Shared/UI/ChatView.swift || {
+  echo "Gallery staging must run on picker dismissal only"
+  exit 1
+}
+grep -q 'connectionStatus == .connected' Sources/Shared/Models/AppModel.swift || {
+  echo "Older-history loads must skip silently while disconnected"
+  exit 1
+}
+grep -q 'removeSessionWithOwnDeviceOnce' Sources/Shared/XMPP/LumaOMEMOStore.swift || {
+  echo "The self-session purge must be a one-time migration"
+  exit 1
+}
+grep -q 'ensureSelfSession' Sources/Shared/XMPP/XMPPService.swift || {
+  echo "A missing self-session must be rebuilt from the own bundle"
+  exit 1
+}
+grep -q 'urn:xmpp:omemo:2' Sources/Shared/XMPP/XMPPService.swift || {
+  echo "OMEMO 2 payloads must be shown as undecryptable, not empty"
+  exit 1
+}
+grep -q 'biometricUnlockAvailable' Sources/Shared/Models/AppModel.swift || {
+  echo "Biometric availability must be cached off the view body"
+  exit 1
+}
+grep -q 'Звонки' Sources/Shared/UI/MainTabView.swift || {
+  echo "The main screen must offer the Calls tab"
+  exit 1
+}
+grep -q 'Настройки' Sources/Shared/UI/MainTabView.swift || {
+  echo "The main screen must offer the Settings tab"
+  exit 1
+}
+grep -q 'case .background:' Sources/App/LumaApp.swift || {
+  echo "The app lock must trigger on background only, not on inactive"
+  exit 1
+}
+grep -q 'onDismissRequest' Sources/Shared/UI/SystemPhotoCameraView.swift || {
+  echo "The camera picker must request dismissal before background preparation"
+  exit 1
+}
+grep -q 'onDismissRequest' Sources/Shared/UI/ChatView.swift || {
+  echo "The camera cover must dismiss through the SwiftUI binding"
+  exit 1
+}
+grep -q 'moveItem(at: sourceURL' Sources/Shared/UI/SystemPhotoCameraView.swift || {
+  echo "The picker movie must be claimed synchronously before dismissal cleanup"
+  exit 1
+}
+grep -q 'video-preview' Sources/Shared/UI/ChatView.swift || {
+  echo "The camera video path must log diagnostics"
   exit 1
 }
 grep -q 'ArchiveSyncCursorPolicy.requestPosition' Sources/Shared/XMPP/XMPPService.swift || {
@@ -318,7 +582,7 @@ grep -q 'MediaPickerSelectionPolicy.preferredOrder' Sources/Shared/UI/ChatView.s
   echo "Ambiguous photo/video providers must retain a fallback representation"
   exit 1
 }
-grep -q 'item.loadTransferable(type: Data.self)' Sources/Shared/UI/ChatView.swift || {
+grep -q 'type: Data.self' Sources/Shared/UI/ChatView.swift || {
   echo "PhotosPicker images need a data fallback when no file representation is available"
   exit 1
 }
@@ -358,7 +622,7 @@ grep -q 'scrollDismissesKeyboard(.interactively)' Sources/Shared/UI/ChatView.swi
   echo "Interactive keyboard dismissal is missing"
   exit 1
 }
-grep -q 'selectedTimelineEntries' Sources/Shared/UI/ChatView.swift || {
+grep -q 'rebuildTimelineEntries' Sources/Shared/UI/ChatView.swift || {
   echo "Chat rows and day boundaries must use the cached stable timeline"
   exit 1
 }
@@ -429,6 +693,10 @@ if grep -q 'Режим видеосообщения\|composerCaptureMode.*video'
   echo "Video-note recording must not reuse the inline voice-message gesture"
   exit 1
 fi
+grep -q 'VideoNoteRotationPolicy.currentInterfaceOrientation' Sources/Shared/Services/VideoNoteRecorder.swift || {
+  echo "Video note capture must rotate by the interface orientation, not the device sensor"
+  exit 1
+}
 grep -q 'resetCaptureGraph()' Sources/Shared/Services/VideoNoteRecorder.swift || {
   echo "Reusable video-note capture cleanup is missing"
   exit 1
@@ -537,8 +805,12 @@ grep -q 'urn:xmpp:reactions:0' Sources/Shared/XMPP/XMPPService.swift || {
   echo "XEP-0444 capability advertisement is missing"
   exit 1
 }
-grep -q 'MessageReactionPolicy.quickChoices' Sources/Shared/UI/Components/MessageBubble.swift || {
-  echo "Message reaction UI is missing"
+grep -q 'onReactPicker' Sources/Shared/UI/Components/MessageBubble.swift || {
+  echo "Message reaction picker is missing"
+  exit 1
+}
+grep -q 'EmojiPickerView' Sources/Shared/UI/ChatView.swift || {
+  echo "The emoji picker is not wired into the chat"
   exit 1
 }
 grep -q 'ChatStateNotificationsModule' Sources/Shared/XMPP/XMPPService.swift || {
@@ -554,8 +826,8 @@ grep -q 'snapshotQueue.async' Sources/Shared/Services/PhoneWatchBridge.swift || 
   exit 1
 }
 awk '
-  /^#if os\(iOS\)$/ { ios_only = 1; next }
-  /^#endif$/ && ios_only { ios_only = 0; next }
+  /^[[:space:]]*#if os\(iOS\)$/ { ios_only = 1; next }
+  /^[[:space:]]*#endif$/ && ios_only { ios_only = 0; next }
   /availableVideoCodecTypes/ {
     found = 1
     if (!ios_only) escaped = 1
@@ -593,7 +865,7 @@ grep -q 'failedDrafts' Sources/Shared/UI/AttachmentPreviewView.swift || {
   echo "Failed media drafts must remain available for retry"
   exit 1
 }
-grep -q 'rosterContactJIDs' Sources/Shared/UI/MainChatView.swift || {
+grep -q 'rosterContactJIDs' Sources/Shared/UI/MainTabView.swift || {
   echo "Prosody roster contacts screen is missing"
   exit 1
 }

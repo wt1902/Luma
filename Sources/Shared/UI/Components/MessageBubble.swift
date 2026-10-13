@@ -1,9 +1,9 @@
 import SwiftUI
 
 #if os(iOS)
-import UIKit
+    import UIKit
 #elseif os(macOS)
-import AppKit
+    import AppKit
 #endif
 
 @MainActor
@@ -23,9 +23,12 @@ struct MessageBubble: View {
     let onDelete: () -> Void
     let onReplyTap: (String) -> Void
     let onReact: (String) -> Void
+    let onReactPicker: () -> Void
 
     @State private var replySwipeOffset: CGFloat = 0
     @State private var replySwipeArmed = false
+    @State private var replySwipeLocked = false
+    @State private var scrollOwnsGesture = false
 
     var body: some View {
         ZStack {
@@ -34,8 +37,8 @@ struct MessageBubble: View {
                 .offset(x: replySwipeOffset)
         }
         .frame(maxWidth: .infinity)
-        .background(isSelected ? Color.accentColor.opacity(0.1) : Color.clear)
         .contentShape(Rectangle())
+        .accessibilityIdentifier("bubble-\(message.clientID)")
         .onTapGesture {
             guard isSelectionMode else { return }
             onToggleSelection()
@@ -44,39 +47,59 @@ struct MessageBubble: View {
             .vertical,
             message.kind == .photo || message.kind == .video ? 7 : 2
         )
-        .simultaneousGesture(
-            replySwipeGesture,
-            including: !isSelectionMode && message.canBeRepliedTo ? .gesture : .none
-        )
         .onChange(of: isSelectionMode) { _, selecting in
             guard selecting else { return }
             replySwipeOffset = 0
             replySwipeArmed = false
+            replySwipeLocked = false
+            scrollOwnsGesture = false
         }
         .contextMenu {
             if !isSelectionMode {
                 if message.canBeReactedTo {
-                    Menu {
-                        ForEach(MessageReactionPolicy.quickChoices, id: \.self) { emoji in
-                            Button(emoji) { onReact(emoji) }
-                        }
-                    } label: {
+                    Button(action: onReactPicker) {
                         Label("Реакция", systemImage: "face.smiling")
                     }
                 }
                 if message.canBeRepliedTo {
                     Button(action: onReply) {
-                        Label("Ответить", systemImage: "arrowshape.turn.up.left")
+                        Label(
+                            "Ответить",
+                            systemImage: "arrowshape.turn.up.left"
+                        )
                     }
                 }
                 if message.canBeForwarded {
                     Button(action: onForward) {
-                        Label("Переслать", systemImage: "arrowshape.turn.up.right")
+                        Label(
+                            "Переслать",
+                            systemImage: "arrowshape.turn.up.right"
+                        )
+                    }
+                }
+                if message.hasText {
+                    Button(action: copyText) {
+                        Label("Копировать текст", systemImage: "doc.on.doc")
+                    }
+                }
+                if message.kind.isMedia, !message.isRetracted {
+                    Button {
+                        Task {
+                            await MediaDownloadService.save(
+                                message,
+                                model: model
+                            )
+                        }
+                    } label: {
+                        Label("Сохранить", systemImage: "square.and.arrow.down")
                     }
                 }
                 if model.canRetryMediaMessage(message) {
                     Button(action: onRetry) {
-                        Label("Повторить отправку", systemImage: "arrow.clockwise")
+                        Label(
+                            "Повторить отправку",
+                            systemImage: "arrow.clockwise"
+                        )
                     }
                 }
                 if message.canBeEdited {
@@ -99,7 +122,9 @@ struct MessageBubble: View {
             }
         }
         .accessibilityLabel(Text(selectionAccessibilityLabel))
-        .accessibilityAction(named: Text(isSelected ? "Убрать из выбранных" : "Выбрать")) {
+        .accessibilityAction(
+            named: Text(isSelected ? "Убрать из выбранных" : "Выбрать")
+        ) {
             if isSelectionMode {
                 onToggleSelection()
             } else {
@@ -108,15 +133,28 @@ struct MessageBubble: View {
         }
     }
 
+    private func copyText() {
+        #if os(macOS)
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(message.body, forType: .string)
+        #else
+            UIPasteboard.general.string = message.body
+        #endif
+    }
+
     private var messageContainer: some View {
         HStack(spacing: 2) {
             if isSelectionMode {
-                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-                    .font(.system(size: 23, weight: .semibold))
-                    .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
-                    .frame(width: 34)
-                    .padding(.leading, 7)
-                    .accessibilityHidden(true)
+                Image(
+                    systemName: isSelected ? "checkmark.circle.fill" : "circle"
+                )
+                .font(.system(size: 23, weight: .semibold))
+                .foregroundStyle(
+                    isSelected ? Color.accentColor : Color.secondary
+                )
+                .frame(width: 34)
+                .padding(.leading, 7)
+                .accessibilityHidden(true)
             }
 
             VStack(spacing: 0) {
@@ -145,30 +183,65 @@ struct MessageBubble: View {
     }
 
     private var replySwipeIcon: some View {
-        Image(systemName: replySwipeArmed
-            ? "arrowshape.turn.up.left.fill"
-            : "arrowshape.turn.up.left")
-            .font(.system(size: 19, weight: .semibold))
-            .foregroundStyle(Color.accentColor)
-            .scaleEffect(
-                CGFloat(0.8) + CGFloat(0.2) * MessageReplySwipePolicy.progress(for: replySwipeOffset)
+        Image(
+            systemName: replySwipeArmed
+                ? "arrowshape.turn.up.left.fill"
+                : "arrowshape.turn.up.left"
+        )
+        .font(.system(size: 19, weight: .semibold))
+        .foregroundStyle(Color.accentColor)
+        .scaleEffect(x: replySwipeOffset > 0 ? -1 : 1, y: 1)
+        .scaleEffect(
+            CGFloat(0.8) + CGFloat(0.2)
+                * MessageReplySwipePolicy.progress(for: replySwipeOffset)
+        )
+        .opacity(
+            Double(
+                CGFloat(0.35) + CGFloat(0.65)
+                    * MessageReplySwipePolicy.progress(for: replySwipeOffset)
             )
-            .opacity(Double(
-                CGFloat(0.35) + CGFloat(0.65) * MessageReplySwipePolicy.progress(for: replySwipeOffset)
-            ))
+        )
     }
 
     private var replySwipeGesture: some Gesture {
         DragGesture(minimumDistance: 20)
             .onChanged { value in
-                let offset = MessageReplySwipePolicy.offset(for: value.translation)
-                guard offset != 0 || replySwipeOffset != 0 else {
-                    // A vertical timeline pan must not publish per-cell state
-                    // changes or compete with UIScrollView's own recognizer.
+                // Arbitration: once the touch is clearly vertical the scroll
+                // view owns it for good, so a later horizontal arc can never
+                // move bubbles mid-scroll. A reply swipe locks in only while
+                // the finger is still moving mostly horizontally.
+                if !replySwipeLocked, !scrollOwnsGesture {
+                    if MessageReplySwipePolicy.canLock(value.translation) {
+                        replySwipeLocked = true
+                    } else if abs(value.translation.height) > 16,
+                        abs(value.translation.width)
+                            < abs(value.translation.height)
+                    {
+                        scrollOwnsGesture = true
+                    }
+                }
+                guard replySwipeLocked, !scrollOwnsGesture else { return }
+                let offset = MessageReplySwipePolicy.offset(
+                    locked: replySwipeLocked,
+                    translation: value.translation
+                )
+                guard offset != 0 else {
+                    // Vertical (or not clearly horizontal) movement: snap the
+                    // indicator back and never publish per-cell state changes
+                    // during an ordinary timeline scroll.
+                    if replySwipeOffset != 0 || replySwipeArmed {
+                        withAnimation(
+                            .spring(response: 0.24, dampingFraction: 0.82)
+                        ) {
+                            replySwipeOffset = 0
+                        }
+                        replySwipeArmed = false
+                    }
                     return
                 }
                 replySwipeOffset = offset
                 let armed = MessageReplySwipePolicy.shouldReply(
+                    locked: replySwipeLocked,
                     translation: value.translation,
                     predictedEndTranslation: value.translation
                 )
@@ -178,12 +251,23 @@ struct MessageBubble: View {
                 replySwipeArmed = armed
             }
             .onEnded { value in
-                let shouldReply = MessageReplySwipePolicy.shouldReply(
-                    translation: value.translation,
-                    predictedEndTranslation: value.predictedEndTranslation
-                )
+                // The lock is a hint, not a requirement: a fast flick may
+                // deliver no intermediate frame that passes canLock, yet its
+                // end state is still a clear horizontal swipe. scrollOwnsGesture
+                // alone protects the timeline from reply activation.
+                let shouldReply =
+                    !scrollOwnsGesture
+                    && MessageReplySwipePolicy.shouldReply(
+                        locked: replySwipeLocked,
+                        translation: value.translation,
+                        predictedEndTranslation: value.predictedEndTranslation
+                    )
+                replySwipeLocked = false
+                scrollOwnsGesture = false
                 if replySwipeOffset != 0 || replySwipeArmed {
-                    withAnimation(.spring(response: 0.24, dampingFraction: 0.82)) {
+                    withAnimation(
+                        .spring(response: 0.24, dampingFraction: 0.82)
+                    ) {
                         replySwipeOffset = 0
                         replySwipeArmed = false
                     }
@@ -195,28 +279,47 @@ struct MessageBubble: View {
     }
 
     private func replySwipeFeedback() {
-#if os(iOS)
-        UIImpactFeedbackGenerator(style: .light).impactOccurred()
-#endif
+        #if os(iOS)
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        #endif
     }
 
     private var selectionAccessibilityLabel: String {
         guard isSelectionMode else { return message.previewText }
-        return "\(message.previewText), \(isSelected ? "выбрано" : "не выбрано")"
+        return
+            "\(message.previewText), \(isSelected ? "выбрано" : "не выбрано")"
     }
 
     private var messageRow: some View {
         HStack(alignment: .bottom, spacing: 8) {
-            if message.direction == .outgoing { Spacer(minLength: sideSpacerMinimum) }
+            if message.direction == .outgoing {
+                Spacer(minLength: sideSpacerMinimum)
+            }
 
-            VStack(alignment: message.direction == .outgoing ? .trailing : .leading, spacing: 4) {
+            VStack(
+                alignment: message.direction == .outgoing
+                    ? .trailing : .leading,
+                spacing: 4
+            ) {
                 if message.isGroupMessage, message.direction == .incoming {
-                    Text(message.senderDisplayName ?? model.displayName(for: message.senderJID))
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(senderColor)
-                        .padding(.horizontal, 8)
+                    Text(
+                        message.senderDisplayName
+                            ?? model.displayName(for: message.senderJID)
+                    )
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(senderColor)
+                    .padding(.horizontal, 8)
                 }
+                // The drag lives on the bubble itself so a swipe can only start
+                // a reply when it begins on the bubble — not on the empty
+                // space beside it, the sender name, or the metadata row.
                 messageContent
+                    .contentShape(Rectangle())
+                    .simultaneousGesture(
+                        replySwipeGesture,
+                        including: !isSelectionMode && message.canBeRepliedTo
+                            ? .gesture : .none
+                    )
 
                 if !reactionSummaries.isEmpty {
                     reactionStrip
@@ -229,13 +332,16 @@ struct MessageBubble: View {
                 }
             }
 
-            if message.direction == .incoming { Spacer(minLength: sideSpacerMinimum) }
+            if message.direction == .incoming {
+                Spacer(minLength: sideSpacerMinimum)
+            }
         }
         .padding(.horizontal, 12)
         .contentShape(Rectangle())
         .onTapGesture {
             guard let targetID = message.replyToID,
-                  message.kind == .text || message.kind == .system else { return }
+                message.kind == .text || message.kind == .system
+            else { return }
             onReplyTap(targetID)
         }
     }
@@ -249,8 +355,13 @@ struct MessageBubble: View {
         if message.security != .omemo || message.delivery == .failed {
             HStack(spacing: 4) {
                 if message.security != .omemo {
-                    Image(systemName: message.security == .plaintext ? "lock.open" : "exclamationmark.shield")
-                        .foregroundStyle(message.security == .plaintext ? .orange : .red)
+                    Image(
+                        systemName: message.security == .plaintext
+                            ? "lock.open" : "exclamationmark.shield"
+                    )
+                    .foregroundStyle(
+                        message.security == .plaintext ? .orange : .red
+                    )
                 }
                 if message.delivery == .failed {
                     Image(systemName: "exclamationmark.circle.fill")
@@ -265,8 +376,13 @@ struct MessageBubble: View {
     private var standardMetadata: some View {
         HStack(spacing: 4) {
             if message.callHistory == nil, message.security != .omemo {
-                Image(systemName: message.security == .plaintext ? "lock.open" : "exclamationmark.shield")
-                    .foregroundStyle(message.security == .plaintext ? .orange : .red)
+                Image(
+                    systemName: message.security == .plaintext
+                        ? "lock.open" : "exclamationmark.shield"
+                )
+                .foregroundStyle(
+                    message.security == .plaintext ? .orange : .red
+                )
             }
             if message.editedAt != nil {
                 Text("изм.")
@@ -274,7 +390,10 @@ struct MessageBubble: View {
             Text(message.timestamp, format: .dateTime.hour().minute())
             if message.direction == .outgoing, message.callHistory == nil {
                 Image(systemName: deliveryIcon)
-                    .foregroundStyle(message.delivery == .failed ? .red : .secondary)
+                    .foregroundStyle(
+                        message.delivery == .failed ? .red : .secondary
+                    )
+                Text(deliveryText)
             }
         }
         .font(.caption2)
@@ -293,7 +412,10 @@ struct MessageBubble: View {
             .font(.subheadline)
             .padding(.horizontal, 13)
             .padding(.vertical, 9)
-            .foregroundStyle(message.direction == .outgoing ? Color.white.opacity(0.86) : Color.secondary)
+            .foregroundStyle(
+                message.direction == .outgoing
+                    ? Color.white.opacity(0.86) : Color.secondary
+            )
             .background(bubbleBackground)
             .clipShape(messageBubbleShape)
         } else {
@@ -340,7 +462,10 @@ struct MessageBubble: View {
                     .lumaTextSelection()
                     .padding(.horizontal, 13)
                     .padding(.vertical, 9)
-                    .foregroundStyle(message.direction == .outgoing ? Color.white : Color.primary)
+                    .foregroundStyle(
+                        message.direction == .outgoing
+                            ? Color.white : Color.primary
+                    )
                     .background(bubbleBackground)
                     .clipShape(messageBubbleShape)
             }
@@ -351,7 +476,9 @@ struct MessageBubble: View {
             .buttonStyle(.plain)
             .padding(.horizontal, 13)
             .padding(.vertical, 9)
-            .foregroundStyle(message.direction == .outgoing ? Color.white : Color.primary)
+            .foregroundStyle(
+                message.direction == .outgoing ? Color.white : Color.primary
+            )
             .background(bubbleBackground)
             .clipShape(messageBubbleShape)
         case .text, .system:
@@ -362,27 +489,36 @@ struct MessageBubble: View {
                     .lumaTextSelection()
                     .padding(.horizontal, 13)
                     .padding(.vertical, 9)
-                    .foregroundStyle(message.direction == .outgoing ? Color.white : Color.primary)
+                    .foregroundStyle(
+                        message.direction == .outgoing
+                            ? Color.white : Color.primary
+                    )
                     .background(bubbleBackground)
                     .clipShape(messageBubbleShape)
             }
         }
     }
 
-    private func callHistoryContent(_ history: CallHistoryMetadata) -> some View {
+    private func callHistoryContent(_ history: CallHistoryMetadata) -> some View
+    {
         HStack(spacing: 12) {
             ZStack {
                 Circle()
-                    .fill(callAccentColor(for: history).opacity(
-                        message.direction == .outgoing ? 0.28 : 0.14
-                    ))
+                    .fill(
+                        callAccentColor(for: history).opacity(
+                            message.direction == .outgoing ? 0.28 : 0.14
+                        )
+                    )
                 Image(systemName: history.isVideo ? "video.fill" : "phone.fill")
                     .font(.system(size: 17, weight: .semibold))
-                Image(systemName: message.direction == .outgoing ? "arrow.up.right" : "arrow.down.left")
-                    .font(.system(size: 8, weight: .heavy))
-                    .padding(3)
-                    .background(Circle().fill(callDirectionBadgeBackground))
-                    .offset(x: 14, y: 14)
+                Image(
+                    systemName: message.direction == .outgoing
+                        ? "arrow.up.right" : "arrow.down.left"
+                )
+                .font(.system(size: 8, weight: .heavy))
+                .padding(3)
+                .background(Circle().fill(callDirectionBadgeBackground))
+                .offset(x: 14, y: 14)
             }
             .frame(width: 42, height: 42)
             .foregroundStyle(callIconForeground(for: history))
@@ -402,7 +538,9 @@ struct MessageBubble: View {
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
         .frame(maxWidth: 300, alignment: .leading)
-        .foregroundStyle(message.direction == .outgoing ? Color.white : Color.primary)
+        .foregroundStyle(
+            message.direction == .outgoing ? Color.white : Color.primary
+        )
         .background(bubbleBackground)
         .clipShape(messageBubbleShape)
         .accessibilityElement(children: .combine)
@@ -463,7 +601,9 @@ struct MessageBubble: View {
                     }
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("\(summary.emoji), реакций: \(summary.count)")
+                .accessibilityLabel(
+                    "\(summary.emoji), реакций: \(summary.count)"
+                )
             }
         }
         .padding(.horizontal, 4)
@@ -491,9 +631,10 @@ struct MessageBubble: View {
         .padding(.bottom, -2)
         .task(id: replyTarget?.remoteAttachmentURL) {
             if let replyTarget,
-               replyTarget.kind == .photo
+                replyTarget.kind == .photo
                     || replyTarget.kind == .video
-                    || replyTarget.kind == .videoNote {
+                    || replyTarget.kind == .videoNote
+            {
                 await model.prepareMediaPreview(replyTarget)
             }
         }
@@ -506,7 +647,8 @@ struct MessageBubble: View {
             }
 
             VStack(
-                alignment: compactTargetDirection == .outgoing ? .trailing : .leading,
+                alignment: compactTargetDirection == .outgoing
+                    ? .trailing : .leading,
                 spacing: -1
             ) {
                 compactSourceBubble
@@ -550,7 +692,9 @@ struct MessageBubble: View {
 
     @ViewBuilder
     private var compactReplyThumbnail: some View {
-        if let target = replyTarget, target.kind != .text, target.kind != .system {
+        if let target = replyTarget, target.kind != .text,
+            target.kind != .system
+        {
             ZStack {
                 RoundedRectangle(cornerRadius: 6, style: .continuous)
                     .fill(Color.primary.opacity(0.08))
@@ -564,25 +708,31 @@ struct MessageBubble: View {
     @ViewBuilder
     private func replyThumbnailImage(for target: ChatMessage) -> some View {
         if let data = model.mediaThumbnail(for: target) {
-#if os(iOS)
-            if let image = ChatMediaImageCache.image(for: target, data: data) {
-                Image(uiImage: image)
-                    .resizable()
-                    .scaledToFill()
-            } else {
-                Image(systemName: replyMediaIcon(for: target.kind))
-                    .foregroundStyle(compactReplyColor)
-            }
-#elseif os(macOS)
-            if let image = ChatMediaImageCache.image(for: target, data: data) {
-                Image(nsImage: image)
-                    .resizable()
-                    .scaledToFill()
-            } else {
-                Image(systemName: replyMediaIcon(for: target.kind))
-                    .foregroundStyle(compactReplyColor)
-            }
-#endif
+            #if os(iOS)
+                if let image = ChatMediaImageCache.image(
+                    for: target,
+                    data: data
+                ) {
+                    Image(uiImage: image)
+                        .resizable()
+                        .scaledToFill()
+                } else {
+                    Image(systemName: replyMediaIcon(for: target.kind))
+                        .foregroundStyle(compactReplyColor)
+                }
+            #elseif os(macOS)
+                if let image = ChatMediaImageCache.image(
+                    for: target,
+                    data: data
+                ) {
+                    Image(nsImage: image)
+                        .resizable()
+                        .scaledToFill()
+                } else {
+                    Image(systemName: replyMediaIcon(for: target.kind))
+                        .foregroundStyle(compactReplyColor)
+                }
+            #endif
         } else {
             Image(systemName: replyMediaIcon(for: target.kind))
                 .font(.system(size: 12, weight: .semibold))
@@ -591,7 +741,9 @@ struct MessageBubble: View {
     }
 
     private var replyTarget: ChatMessage? {
-        message.replyToID.flatMap { model.message(withID: $0, in: message.conversationID) }
+        message.replyToID.flatMap {
+            model.message(withID: $0, in: message.conversationID)
+        }
     }
 
     private var compactTargetDirection: ChatMessage.Direction {
@@ -606,15 +758,23 @@ struct MessageBubble: View {
     }
 
     private var replyText: String {
-        replyTarget?.quotePreview ?? message.replyPreview ?? "Исходное сообщение недоступно"
+        replyTarget?.quotePreview ?? message.replyPreview
+            ?? "Исходное сообщение недоступно"
     }
 
     private var mediaContent: some View {
         HStack(spacing: 11) {
             ZStack {
                 Circle()
-                    .fill(.white.opacity(message.direction == .outgoing ? 0.22 : 0.12))
-                    .frame(width: message.kind == .videoNote ? 58 : 38, height: message.kind == .videoNote ? 58 : 38)
+                    .fill(
+                        .white.opacity(
+                            message.direction == .outgoing ? 0.22 : 0.12
+                        )
+                    )
+                    .frame(
+                        width: message.kind == .videoNote ? 58 : 38,
+                        height: message.kind == .videoNote ? 58 : 38
+                    )
                 Image(systemName: mediaIcon)
                     .font(.system(size: message.kind == .videoNote ? 24 : 17))
             }
@@ -652,9 +812,15 @@ struct MessageBubble: View {
             parts.append(String(format: "%d:%02d", seconds / 60, seconds % 60))
         }
         if let byteCount = message.byteCount {
-            parts.append(ByteCountFormatter.string(fromByteCount: Int64(byteCount), countStyle: .file))
+            parts.append(
+                ByteCountFormatter.string(
+                    fromByteCount: Int64(byteCount),
+                    countStyle: .file
+                )
+            )
         }
-        return parts.isEmpty ? "Нажмите для просмотра" : parts.joined(separator: " · ")
+        return parts.isEmpty
+            ? "Нажмите для просмотра" : parts.joined(separator: " · ")
     }
 
     private var mediaIcon: String {
@@ -687,7 +853,10 @@ struct MessageBubble: View {
     private var bubbleBackground: some View {
         if message.direction == .outgoing {
             LinearGradient(
-                colors: [Color(red: 0.13, green: 0.51, blue: 0.94), Color(red: 0.12, green: 0.63, blue: 0.94)],
+                colors: [
+                    Color(red: 0.13, green: 0.51, blue: 0.94),
+                    Color(red: 0.12, green: 0.63, blue: 0.94),
+                ],
                 startPoint: .topLeading,
                 endPoint: .bottomTrailing
             )
@@ -696,16 +865,27 @@ struct MessageBubble: View {
         }
     }
 
-    private var messageBubbleShape: RoundedRectangle {
-        RoundedRectangle(cornerRadius: 18, style: .continuous)
+    private var messageBubbleShape: ChatBubbleShape {
+        ChatBubbleShape(isOutgoing: message.direction == .outgoing)
     }
 
     private var deliveryIcon: String {
         switch message.delivery {
         case .sending: return "clock"
         case .sent: return "checkmark"
-        case .delivered: return "checkmark.circle.fill"
+        case .delivered: return "checkmark.circle.dotted"
         case .failed: return "exclamationmark.circle.fill"
+        case .read: return "checkmark.circle.fill"
+        }
+    }
+
+    private var deliveryText: String {
+        switch message.delivery {
+        case .sending: return "Sending..."
+        case .sent: return "Sended"
+        case .delivered: return "Delivered"
+        case .failed: return "Error"
+        case .read: return "Read"
         }
     }
 
@@ -725,13 +905,84 @@ struct MessageBubble: View {
     }
 }
 
-private extension View {
+extension View {
     @ViewBuilder
-    func lumaTextSelection() -> some View {
-#if os(macOS)
-        textSelection(.enabled)
-#else
-        self
-#endif
+    fileprivate func lumaTextSelection() -> some View {
+        #if os(macOS)
+            textSelection(.enabled)
+        #else
+            self
+        #endif
     }
+}
+
+#Preview("Входящее") {
+    MessageBubble(
+        model: PreviewSupport.model,
+        message: PreviewSupport.message(),
+        isSelectionMode: false,
+        isSelected: false,
+        onAttachmentTap: {},
+        onEdit: {},
+        onReply: {},
+        onForward: {},
+        onRetry: {},
+        onToggleSelection: {},
+        onBeginSelection: {},
+        onRetract: {},
+        onDelete: {},
+        onReplyTap: { _ in },
+        onReact: { _ in },
+        onReactPicker: {}
+    )
+    .padding()
+}
+
+#Preview("Исходящее") {
+    MessageBubble(
+        model: PreviewSupport.model,
+        message: PreviewSupport.message(
+            senderJID: "me@example.org",
+            body: "Отлично! Созвонимся вечером?",
+            direction: .outgoing,
+            delivery: .delivered
+        ),
+        isSelectionMode: false,
+        isSelected: false,
+        onAttachmentTap: {},
+        onEdit: {},
+        onReply: {},
+        onForward: {},
+        onRetry: {},
+        onToggleSelection: {},
+        onBeginSelection: {},
+        onRetract: {},
+        onDelete: {},
+        onReplyTap: { _ in },
+        onReact: { _ in },
+        onReactPicker: {}
+    )
+    .padding()
+}
+
+#Preview("Фото") {
+    MessageBubble(
+        model: PreviewSupport.model,
+        message: PreviewSupport.photoMessage(),
+        isSelectionMode: false,
+        isSelected: false,
+        onAttachmentTap: {},
+        onEdit: {},
+        onReply: {},
+        onForward: {},
+        onRetry: {},
+        onToggleSelection: {},
+        onBeginSelection: {},
+        onRetract: {},
+        onDelete: {},
+        onReplyTap: { _ in },
+        onReact: { _ in },
+        onReactPicker: {}
+    )
+    .padding()
 }

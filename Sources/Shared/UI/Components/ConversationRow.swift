@@ -58,3 +58,36 @@ struct ConversationRow: View {
         .padding(.vertical, 2)
     }
 }
+
+#Preview("Прямой чат") {
+    ConversationRow(
+        conversation: PreviewSupport.conversation(
+            displayName: "Алиса",
+            lastMessage: "Привет! Как дела?",
+            lastActivity: Date().addingTimeInterval(-120),
+            unreadCount: 2,
+            isOnline: true
+        ),
+        imageData: nil,
+        isEncrypted: true
+    )
+    .padding()
+}
+
+#Preview("Групповой чат") {
+    ConversationRow(
+        conversation: PreviewSupport.conversation(
+            jid: "team@conference.example.org",
+            displayName: "Команда Luma",
+            lastMessage: "Иван: созвон в 15:00",
+            lastActivity: Date().addingTimeInterval(-3_600),
+            unreadCount: 5,
+            kind: .group,
+            isGroupJoined: true,
+            occupantCount: 7
+        ),
+        imageData: nil,
+        isEncrypted: true
+    )
+    .padding()
+}

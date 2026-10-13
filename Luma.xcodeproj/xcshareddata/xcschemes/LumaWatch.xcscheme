@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <Scheme
-   LastUpgradeVersion = "2660"
+   LastUpgradeVersion = "1600"
    version = "1.3">
    <BuildAction
       parallelizeBuildables = "YES"
@@ -55,7 +55,6 @@
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "BAB78463D7DE07A8F7B3D27D"
             BuildableName = "LumaWatch.app"
-            BlueprintName = "LumaWatch"
             ReferencedContainer = "container:Luma.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
@@ -72,7 +71,6 @@
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "BAB78463D7DE07A8F7B3D27D"
             BuildableName = "LumaWatch.app"
-            BlueprintName = "LumaWatch"
             ReferencedContainer = "container:Luma.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>

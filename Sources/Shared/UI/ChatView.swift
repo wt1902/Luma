@@ -2,17 +2,32 @@ import CoreTransferable
 import Foundation
 import ImageIO
 import PhotosUI
+import SwiftData
 import SwiftUI
 import UniformTypeIdentifiers
+import os
 
 #if os(iOS)
-import UIKit
+    import UIKit
 #endif
+
+private enum EmojiPickerPresentation: Identifiable {
+    case reaction(ChatMessage)
+    case composer
+
+    var id: String {
+        switch self {
+        case .reaction(let message): return "reaction-\(message.clientID)"
+        case .composer: return "composer"
+        }
+    }
+}
 
 @MainActor
 struct ChatView: View {
     private static let bottomAnchorID = "luma-chat-timeline-bottom"
     private static let timelineCoordinateSpace = "luma-chat-timeline-space"
+    private static let localHistoryPageSize = 60
 
     @ObservedObject var model: AppModel
     let conversation: Conversation
@@ -42,8 +57,15 @@ struct ChatView: View {
     @State private var selectedMessageIDs: Set<String> = []
     @State private var destructiveAction: MessageDestructiveAction?
     @State private var replyThreadSelection: ReplyThreadSelection?
+    @State private var emojiPickerPresentation: EmojiPickerPresentation?
     @State private var hasCompletedInitialScroll = false
     @State private var isNearTimelineBottom = true
+    @State private var historyLoadAnchorID: String?
+    @State private var historyTopTriggerArmed = true
+    @State private var historyTopTriggerVisible = false
+    @State private var historyLoadEntryCount = 0
+    @State private var historyAutoContinueCount = 0
+    @State private var emptyHistoryRetryCount = 0
     @State private var activeCaptureMode: ComposerCaptureMode?
     @State private var preparingCaptureMode: ComposerCaptureMode?
     @State private var captureGestureIsActive = false
@@ -52,6 +74,94 @@ struct ChatView: View {
     @State private var captureAttemptID = UUID()
     @State private var captureStartTask: Task<Void, Never>?
     @State private var captureSuspendsArchiveSync = false
+    @State private var pickerResetToken = UUID()
+    @State private var timelineEntries: [ChatTimelineEntry] = []
+    @State private var visibleLocalMessageCount = 0
+    @State private var localHistoryExhausted = false
+    /// Messages-style entrance state: which rows currently animate, which IDs
+    /// the timeline already showed, and whether the opening cascade of this
+    /// conversation has played.
+    @State private var entranceModes: [String: MessageBubbleEntrance.Mode] = [:]
+    @State private var knownEntranceIDs: Set<String> = []
+    @State private var hasPlayedOpeningEntrance = false
+    @State private var entranceReleaseToken = UUID()
+
+    /// Messages of this conversation straight from the SwiftData store,
+    /// ordered like `AppModel.selectedMessages`: timestamp, then clientID.
+    @Query private var messages: [ChatMessage]
+
+    init(model: AppModel, conversation: Conversation) {
+        self.model = model
+        self.conversation = conversation
+        let conversationJID = conversation.jid
+        _messages = Query(
+            filter: #Predicate<ChatMessage> { message in
+                message.conversationID == conversationJID
+            },
+            sort: [
+                SortDescriptor(\ChatMessage.timestamp, order: .forward),
+                SortDescriptor(\ChatMessage.clientID, order: .forward),
+            ]
+        )
+        _audioRecorder = StateObject(wrappedValue: AudioMessageRecorder())
+        _isComposerFocused = FocusState()
+        _draft = State(initialValue: "")
+        _showingFileImporter = State(initialValue: false)
+        _fileImportMode = State(initialValue: FileImportMode.files)
+        _showingEncryption = State(initialValue: false)
+        _showingVideoNoteRecorder = State(initialValue: false)
+        _videoNoteIsSending = State(initialValue: false)
+        _showingMediaPicker = State(initialValue: false)
+        _showingPhotoCamera = State(initialValue: false)
+        _photoCameraIsPreparingResult = State(initialValue: false)
+        _showingLocationPicker = State(initialValue: false)
+        _showingGroupInfo = State(initialValue: false)
+        _showingAttachmentPreview = State(initialValue: false)
+        _attachmentPreviewPresentationPending = State(initialValue: false)
+        _attachmentPreviewPresentationTask = State<Task<Void, Never>?>(
+            initialValue: nil
+        )
+        _pickedMediaItems = State<[PhotosPickerItem]>(initialValue: [])
+        _attachmentDrafts = State<[AttachmentDraft]>(initialValue: [])
+        _isPreparingAttachments = State(initialValue: false)
+        _editingMessageID = State<String?>(initialValue: nil)
+        _replyingToMessageID = State<String?>(initialValue: nil)
+        _forwardingSelection = State<MessageForwardSelection?>(
+            initialValue: nil
+        )
+        _selectedMessageIDs = State<Set<String>>(initialValue: [])
+        _destructiveAction = State<MessageDestructiveAction?>(initialValue: nil)
+        _replyThreadSelection = State<ReplyThreadSelection?>(initialValue: nil)
+        _emojiPickerPresentation = State<EmojiPickerPresentation?>(
+            initialValue: nil
+        )
+        _hasCompletedInitialScroll = State(initialValue: false)
+        _historyTopTriggerVisible = State(initialValue: false)
+        _historyLoadEntryCount = State(initialValue: 0)
+        _historyAutoContinueCount = State(initialValue: 0)
+        _emptyHistoryRetryCount = State(initialValue: 0)
+        _isNearTimelineBottom = State(initialValue: true)
+        _historyLoadAnchorID = State<String?>(initialValue: nil)
+        _historyTopTriggerArmed = State(initialValue: true)
+        _activeCaptureMode = State<ComposerCaptureMode?>(initialValue: nil)
+        _preparingCaptureMode = State<ComposerCaptureMode?>(initialValue: nil)
+        _captureGestureIsActive = State(initialValue: false)
+        _captureIsLocked = State(initialValue: false)
+        _captureDragTranslation = State(initialValue: CGSize.zero)
+        _captureAttemptID = State(initialValue: UUID())
+        _captureStartTask = State<Task<Void, Never>?>(initialValue: nil)
+        _captureSuspendsArchiveSync = State(initialValue: false)
+        _pickerResetToken = State(initialValue: UUID())
+        _timelineEntries = State<[ChatTimelineEntry]>(initialValue: [])
+        _visibleLocalMessageCount = State(initialValue: 0)
+        _localHistoryExhausted = State(initialValue: false)
+        _entranceModes = State<[String: MessageBubbleEntrance.Mode]>(
+            initialValue: [:]
+        )
+        _knownEntranceIDs = State<Set<String>>(initialValue: [])
+        _hasPlayedOpeningEntrance = State(initialValue: false)
+        _entranceReleaseToken = State(initialValue: UUID())
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -68,10 +178,10 @@ struct ChatView: View {
                 }
         }
         .background(Color.secondary.opacity(0.035))
-        .navigationTitle(conversation.displayName)
-#if os(iOS)
-        .navigationBarTitleDisplayMode(.inline)
-#endif
+        .navigationTitle("")
+        // #if os(iOS)
+        //         .navigationBarTitleDisplayMode(.inline)
+        // #endif
         .toolbar {
             ToolbarItem(placement: .principal) {
                 chatNavigationTitle
@@ -85,42 +195,61 @@ struct ChatView: View {
                         .font(.subheadline.weight(.semibold))
                 }
             } else {
-                ToolbarItemGroup(placement: .primaryAction) {
+                ToolbarItem(placement: .primaryAction) {
                     if !conversation.isGroup {
-                        Button {
-                            Task { await model.startCall(to: conversation.jid, withVideo: false) }
-                        } label: {
-                            Image(systemName: "phone")
-                        }
-                        .disabled(!canStartCall)
-                        .help("Аудиозвонок")
+                        Menu {
+                            Button {
+                                Task {
+                                    await model.startCall(
+                                        to: conversation.jid,
+                                        withVideo: false
+                                    )
+                                }
+                            } label: {
+                                Label("Аудиозвонок", systemImage: "phone")
+                            }
+                            .disabled(!canStartCall)
+                            .help("Аудиозвонок")
 
-                        Button {
-                            Task { await model.startCall(to: conversation.jid, withVideo: true) }
+                            Button {
+                                Task {
+                                    await model.startCall(
+                                        to: conversation.jid,
+                                        withVideo: true
+                                    )
+                                }
+                            } label: {
+                                Label("Видеозвонок", systemImage: "video")
+                            }
+                            .disabled(!canStartCall)
+                            .help("Видеозвонок")
+                            encryptionMenu
                         } label: {
-                            Image(systemName: "video")
+                            Image(systemName: "ellipsis.circle")
                         }
+                        .menuIndicator(.hidden)
                         .disabled(!canStartCall)
-                        .help("Видеозвонок")
                     }
-                    AvatarView(
-                        conversation: liveConversation,
-                        imageData: model.avatarData(for: conversation.jid),
-                        size: 28
-                    )
                     if conversation.isGroup {
-                        Button { showingGroupInfo = true } label: {
+                        Button {
+                            showingGroupInfo = true
+                        } label: {
                             Image(systemName: "person.3")
                         }
                         .help("Информация о группе")
                     }
-                    encryptionMenu
                 }
             }
         }
-#if os(iOS)
-        .toolbar(replyThreadSelection == nil ? .visible : .hidden, for: .navigationBar)
-#endif
+        #if os(iOS)
+            .toolbar(
+                replyThreadSelection == nil ? .visible : .hidden,
+                for: .navigationBar
+            )
+            // A pushed conversation takes the whole screen; the tab bar
+            // comes back when the user pops back to the list.
+            .toolbar(.hidden, for: .tabBar)
+        #endif
         .fileImporter(
             isPresented: $showingFileImporter,
             allowedContentTypes: fileImportMode.allowedContentTypes,
@@ -128,7 +257,9 @@ struct ChatView: View {
         ) { result in
             guard case .success(let urls) = result else { return }
             let preferredKind = fileImportMode.preferredKind
-            Task { await stageImportedFiles(urls, preferredKind: preferredKind) }
+            Task {
+                await stageImportedFiles(urls, preferredKind: preferredKind)
+            }
         }
         .photosPicker(
             isPresented: $showingMediaPicker,
@@ -137,43 +268,59 @@ struct ChatView: View {
             matching: .any(of: [.images, .videos]),
             preferredItemEncoding: .current
         )
+        // A fresh picker identity per attempt: clearing the selection while
+        // the picker is presented desynchronizes its internal state, and the
+        // stale selection then leaks into the next presentation.
+        .id(pickerResetToken)
         .onChange(of: showingMediaPicker) { _, isPresented in
-            if !isPresented {
-                schedulePendingAttachmentPreview()
-            }
-        }
-#if os(iOS)
-        .fullScreenCover(
-            isPresented: $showingPhotoCamera,
-            onDismiss: {
-                schedulePendingAttachmentPreview()
-                if !photoCameraIsPreparingResult {
-                    releaseArchiveSyncAfterCapture()
-                }
-            }
-        ) {
-            SystemPhotoCameraView(
-                onMedia: { result in
-                    showingPhotoCamera = false
-                    switch result {
-                    case .success(let media):
-                        photoCameraIsPreparingResult = true
-                        Task { await stageCapturedMedia(media) }
-                    case .failure(let error):
-                        model.errorMessage = error.localizedDescription
-                    }
-                },
-                onCancel: {
-                    showingPhotoCamera = false
-                }
-            )
-            .ignoresSafeArea()
-        }
-#endif
-        .onChange(of: pickedMediaItems) { _, items in
+            guard !isPresented else { return }
+            // On Done the binding holds the chosen items; on Cancel SwiftUI
+            // restores the pre-presentation value (kept empty below), so
+            // staging runs only for a confirmed selection.
+            let items = pickedMediaItems
+            pickedMediaItems = []
+            pickerResetToken = UUID()
             guard !items.isEmpty else { return }
             Task { await stagePickedMedia(items) }
         }
+        #if os(iOS)
+            .fullScreenCover(
+                isPresented: $showingPhotoCamera,
+                onDismiss: {
+                    schedulePendingAttachmentPreview()
+                    if !photoCameraIsPreparingResult {
+                        releaseArchiveSyncAfterCapture()
+                    }
+                }
+            ) {
+                SystemPhotoCameraView(
+                    onDismissRequest: {
+                        // Runs synchronously in the picker delegate while the
+                        // camera is still presented: dismiss through the
+                        // binding so SwiftUI owns the transition, and reserve
+                        // the archive-sync suspension across the dismissal
+                        // while the file is prepared in the background.
+                        showingPhotoCamera = false
+                        photoCameraIsPreparingResult = true
+                    },
+                    onMedia: { result in
+                        switch result {
+                        case .success(let media):
+                            photoCameraIsPreparingResult = true
+                            Task { await stageCapturedMedia(media) }
+                        case .failure(let error):
+                            photoCameraIsPreparingResult = false
+                            releaseArchiveSyncAfterCapture()
+                            model.errorMessage = error.localizedDescription
+                        }
+                    },
+                    onCancel: {
+                        showingPhotoCamera = false
+                    }
+                )
+                .ignoresSafeArea()
+            }
+        #endif
         .onChange(of: draft) { _, text in
             model.updateComposerActivity(text, in: liveConversation)
         }
@@ -221,6 +368,11 @@ struct ChatView: View {
                 clearMessageSelection()
             }
         }
+        .sheet(item: $emojiPickerPresentation) { presentation in
+            EmojiPickerView { emoji in
+                handleEmojiSelection(emoji, for: presentation)
+            }
+        }
         .alert(item: $destructiveAction) { action in
             Alert(
                 title: Text(action.title),
@@ -234,11 +386,23 @@ struct ChatView: View {
         .overlay {
             replyThreadOverlay
         }
-        .onChange(of: conversation.id) { _, _ in
+        .onChange(of: conversation.jid) { _, _ in
             hasCompletedInitialScroll = false
             isNearTimelineBottom = true
+            historyLoadAnchorID = nil
+            historyTopTriggerArmed = true
+            historyTopTriggerVisible = false
+            historyAutoContinueCount = 0
+            emptyHistoryRetryCount = 0
+            visibleLocalMessageCount = 0
+            localHistoryExhausted = false
+            entranceModes = [:]
+            knownEntranceIDs = []
+            hasPlayedOpeningEntrance = false
+            entranceReleaseToken = UUID()
         }
         .onDisappear {
+            model.endConversationViewing(jid: conversation.jid)
             model.endComposerActivity(in: liveConversation)
             attachmentPreviewPresentationTask?.cancel()
             attachmentPreviewPresentationTask = nil
@@ -247,9 +411,10 @@ struct ChatView: View {
             clearMessageSelection()
             cancelComposerRecording(feedback: false)
             if !showingVideoNoteRecorder,
-               !showingPhotoCamera,
-               !videoNoteIsSending,
-               !photoCameraIsPreparingResult {
+                !showingPhotoCamera,
+                !videoNoteIsSending,
+                !photoCameraIsPreparingResult
+            {
                 releaseArchiveSyncAfterCapture()
             }
             if !showingAttachmentPreview {
@@ -262,7 +427,11 @@ struct ChatView: View {
     @ViewBuilder
     private var replyThreadOverlay: some View {
         if let selection = replyThreadSelection,
-           let root = model.message(withID: selection.rootID, in: conversation.id) {
+            let root = model.message(
+                withID: selection.rootID,
+                in: conversation.jid
+            )
+        {
             ReplyThreadOverlay(
                 model: model,
                 rootMessage: root,
@@ -279,12 +448,21 @@ struct ChatView: View {
 
     private var encryptionMenu: some View {
         Menu {
-            Section(conversation.isGroup ? "Шифрование этой группы" : "Шифрование этого чата") {
-                ForEach(EncryptionPreference.allCases, id: \.rawValue) { preference in
+            Section(
+                conversation.isGroup
+                    ? "Шифрование этой группы" : "Шифрование этого чата"
+            ) {
+                ForEach(EncryptionPreference.allCases, id: \.rawValue) {
+                    preference in
                     Button {
-                        model.setEncryptionPreference(preference, for: conversation.jid)
+                        model.setEncryptionPreference(
+                            preference,
+                            for: conversation.jid
+                        )
                     } label: {
-                        if model.encryptionPreference(for: conversation.jid) == preference {
+                        if model.encryptionPreference(for: conversation.jid)
+                            == preference
+                        {
                             Label(preference.title, systemImage: "checkmark")
                         } else {
                             Text(preference.title)
@@ -294,15 +472,22 @@ struct ChatView: View {
             }
             if !conversation.isGroup {
                 Divider()
-                Button { showingEncryption = true } label: {
-                    Label("Устройства и отпечатки", systemImage: "checkmark.shield")
+                Button {
+                    showingEncryption = true
+                } label: {
+                    Label(
+                        "Устройства и отпечатки",
+                        systemImage: "checkmark.shield"
+                    )
                 }
             }
         } label: {
-            Image(systemName: encryptionIcon)
-                .foregroundStyle(encryptionEnabled ? Color.primary : Color.orange)
+            Label("Шифрование", systemImage: encryptionIcon)
         }
-        .help(encryptionEnabled ? "OMEMO включено" : "Сообщения отправляются без OMEMO")
+        .help(
+            encryptionEnabled
+                ? "OMEMO включено" : "Сообщения отправляются без OMEMO"
+        )
     }
 
     private var canStartCall: Bool {
@@ -310,7 +495,106 @@ struct ChatView: View {
     }
 
     private var selectedTimelineMessages: [ChatMessage] {
-        model.selectedMessages.filter { selectedMessageIDs.contains($0.id) }
+        model.selectedMessages.filter {
+            selectedMessageIDs.contains($0.clientID)
+        }
+    }
+
+    private func rebuildTimelineEntries(from newMessages: [ChatMessage]? = nil) {
+        let source = newMessages ?? messages
+        if visibleLocalMessageCount == 0 {
+            visibleLocalMessageCount = min(Self.localHistoryPageSize, source.count)
+        } else if localHistoryExhausted {
+            visibleLocalMessageCount = source.count
+        } else {
+            visibleLocalMessageCount = min(visibleLocalMessageCount, source.count)
+        }
+        localHistoryExhausted = visibleLocalMessageCount >= source.count
+        let visible = Array(source.suffix(visibleLocalMessageCount))
+        timelineEntries = ChatTimelineEntry.make(from: visible)
+        updateEntranceModes(for: visible)
+    }
+
+    private var hasMoreLocalHistory: Bool {
+        visibleLocalMessageCount < messages.count
+    }
+
+    /// Decides which rows play a Messages-style entrance after a rebuild.
+    /// The first page of an opened conversation cascades bottom-up; rows that
+    /// appear later (a send, an incoming message) launch from the composer's
+    /// edge. Modes are released once the animation window closes so a row
+    /// recycled by the lazy stack during scrolling reappears statically.
+    private func updateEntranceModes(for newMessages: [ChatMessage]) {
+        let ids = newMessages.map(\.clientID)
+        let known = knownEntranceIDs
+        knownEntranceIDs = Set(ids)
+
+        guard hasPlayedOpeningEntrance else {
+            guard !ids.isEmpty else { return }
+            hasPlayedOpeningEntrance = true
+            // The first message ever in an empty chat should launch out of
+            // the composer like any other send, not cascade in.
+            if ids.count == 1, known.isEmpty,
+                newMessages.first?.direction == .outgoing
+            {
+                applyLaunch(for: newMessages, ids: ids)
+                return
+            }
+            let delays = ChatMessageEntrancePolicy.entranceDelays(
+                forIDs: ids
+            )
+            for (id, delay) in delays {
+                entranceModes[id] = .cascade(delay: delay)
+            }
+            scheduleEntranceRelease(
+                ids: Set(delays.keys),
+                after: ChatMessageEntrancePolicy.entranceCascadeDuration
+            )
+            return
+        }
+
+        applyLaunch(
+            for: newMessages,
+            ids: ChatMessageEntrancePolicy.appendedLaunchIDs(
+                in: ids,
+                after: known
+            )
+        )
+    }
+
+    private func applyLaunch(for messages: [ChatMessage], ids: [String]) {
+        guard !ids.isEmpty else { return }
+        let launched = Set(ids)
+        var applied: Set<String> = []
+        for message in messages where launched.contains(message.clientID) {
+            entranceModes[message.clientID] = .launch(
+                outgoing: message.direction == .outgoing
+            )
+            applied.insert(message.clientID)
+        }
+        scheduleEntranceRelease(
+            ids: applied,
+            after: ChatMessageEntrancePolicy.entranceAnimationDuration
+        )
+    }
+
+    private func scheduleEntranceRelease(
+        ids: Set<String>,
+        after delay: TimeInterval
+    ) {
+        guard !ids.isEmpty else { return }
+        let token = entranceReleaseToken
+        Task { @MainActor in
+            try? await Task.sleep(
+                nanoseconds: UInt64(delay * 1_000_000_000)
+            )
+            guard !Task.isCancelled, token == entranceReleaseToken else {
+                return
+            }
+            for id in ids {
+                entranceModes[id] = nil
+            }
+        }
     }
 
     private var isSelectingMessages: Bool {
@@ -319,20 +603,54 @@ struct ChatView: View {
 
     private var messageTimeline: some View {
         ScrollViewReader { proxy in
-            let timelineEntries = model.selectedTimelineEntries
             GeometryReader { viewport in
                 ZStack(alignment: .bottomTrailing) {
                     ScrollView {
                         LazyVStack(spacing: 5) {
+                            if hasCompletedInitialScroll,
+                                (hasMoreLocalHistory || model.hasMoreOlderHistory),
+                                !timelineEntries.isEmpty
+                            {
+                                Color.clear
+                                    .frame(height: 1)
+                                    .accessibilityHidden(true)
+                                    .onAppear {
+                                        historyTopTriggerVisible = true
+                                        guard historyTopTriggerArmed,
+                                            !model.isLoadingOlderHistory
+                                        else { return }
+                                        triggerOlderHistoryLoad()
+                                    }
+                                    .onDisappear {
+                                        historyTopTriggerVisible = false
+                                        historyTopTriggerArmed = true
+                                        historyAutoContinueCount = 0
+                                    }
+                                if model.isLoadingOlderHistory {
+                                    ProgressView()
+                                        .controlSize(.small)
+                                        .padding(.vertical, 6)
+                                }
+                            }
                             if timelineEntries.isEmpty {
                                 ContentUnavailableView(
                                     emptyChatTitle,
                                     systemImage: conversation.isGroup
                                         ? "person.3.fill"
-                                        : (encryptionEnabled ? "lock.shield" : "lock.open"),
+                                        : (encryptionEnabled
+                                            ? "lock.shield" : "lock.open"),
                                     description: Text(emptyChatDescription)
                                 )
                                 .padding(.top, 80)
+                                .onAppear {
+                                    // Empty timeline has no scroll gesture, so load
+                                    // the first page directly when it appears.
+                                    guard hasMoreLocalHistory || model.hasMoreOlderHistory,
+                                        !model.isLoadingOlderHistory
+                                    else { return }
+                                    model
+                                        .loadOlderHistoryForSelectedConversation()
+                                }
                             } else {
                                 ForEach(timelineEntries) { entry in
                                     let message = entry.message
@@ -343,89 +661,203 @@ struct ChatView: View {
                                         model: model,
                                         message: message,
                                         isSelectionMode: isSelectingMessages,
-                                        isSelected: selectedMessageIDs.contains(message.id),
+                                        isSelected: selectedMessageIDs.contains(
+                                            message.clientID
+                                        ),
                                         onAttachmentTap: {
-                                            Task { await model.previewAttachment(message) }
+                                            Task {
+                                                await model.previewAttachment(
+                                                    message
+                                                )
+                                            }
                                         },
                                         onEdit: { startEditing(message) },
                                         onReply: { startReplying(to: message) },
-                                        onForward: { presentForwarding([message]) },
-                                        onRetry: {
-                                            Task { await model.retryMediaMessage(message) }
+                                        onForward: {
+                                            presentForwarding([message])
                                         },
-                                        onToggleSelection: { toggleMessageSelection(message) },
-                                        onBeginSelection: { beginMessageSelection(with: message) },
+                                        onRetry: {
+                                            Task {
+                                                await model.retryMediaMessage(
+                                                    message
+                                                )
+                                            }
+                                        },
+                                        onToggleSelection: {
+                                            toggleMessageSelection(message)
+                                        },
+                                        onBeginSelection: {
+                                            beginMessageSelection(with: message)
+                                        },
                                         onRetract: {
-                                            destructiveAction = .init(kind: .retract, messages: [message])
+                                            destructiveAction = .init(
+                                                kind: .retract,
+                                                messages: [message]
+                                            )
                                         },
                                         onDelete: {
-                                            destructiveAction = .init(kind: .localDelete, messages: [message])
+                                            destructiveAction = .init(
+                                                kind: .localDelete,
+                                                messages: [message]
+                                            )
                                         },
                                         onReplyTap: { targetID in
                                             presentReplyThread(
                                                 rootID: targetID,
-                                                selectedReplyID: message.id
+                                                selectedReplyID: message
+                                                    .clientID
                                             )
                                         },
                                         onReact: { emoji in
-                                            Task { await model.toggleReaction(emoji, on: message) }
+                                            Task {
+                                                await model.toggleReaction(
+                                                    emoji,
+                                                    on: message
+                                                )
+                                            }
+                                        },
+                                        onReactPicker: {
+                                            emojiPickerPresentation = .reaction(
+                                                message
+                                            )
                                         }
                                     )
-                                    .id(message.id)
+                                    .modifier(
+                                        MessageBubbleEntrance(
+                                            mode: entranceModes[
+                                                message.clientID
+                                            ] ?? .settled
+                                        )
+                                    )
+                                    .id(message.clientID)
                                 }
                             }
                         }
                         .padding(.vertical, 10)
 
                         timelineBottomSentinel
-#if os(iOS)
-                        ChatScrollMetricsObserver(identity: conversation.id) { isNearBottom in
-                            guard isNearTimelineBottom != isNearBottom else { return }
-                            isNearTimelineBottom = isNearBottom
-                        }
-                        .frame(height: 0)
-                        .accessibilityHidden(true)
-#endif
+                        #if os(iOS)
+                            ChatScrollMetricsObserver(
+                                identity: conversation.jid
+                            ) { isNearBottom in
+                                guard isNearTimelineBottom != isNearBottom
+                                else { return }
+                                isNearTimelineBottom = isNearBottom
+                            }
+                            .frame(height: 0)
+                            .accessibilityHidden(true)
+                        #endif
                     }
                     .defaultScrollAnchor(.bottom)
-#if os(iOS)
-                    .scrollDismissesKeyboard(.interactively)
-#endif
+                    #if os(iOS)
+                        .scrollDismissesKeyboard(.interactively)
+                    #endif
                     .coordinateSpace(name: Self.timelineCoordinateSpace)
-#if os(macOS)
-                    .onPreferenceChange(TimelineBottomYPreferenceKey.self) { bottomY in
-                        updateTimelineBottomProximity(
-                            bottomY: bottomY,
-                            viewportHeight: viewport.size.height
-                        )
+                    .onAppear {
+                        rebuildTimelineEntries()
                     }
-#endif
+                    .onChange(of: messages) { _, newMessages in
+                        rebuildTimelineEntries(from: newMessages)
+                    }
+                    .accessibilityIdentifier("chat-timeline")
+                    #if os(macOS)
+                        .onPreferenceChange(TimelineBottomYPreferenceKey.self) {
+                            bottomY in
+                            updateTimelineBottomProximity(
+                                bottomY: bottomY,
+                                viewportHeight: viewport.size.height
+                            )
+                        }
+                    #endif
                     .task(id: timelineEntries.last?.id) {
                         await performInitialScrollAfterLayout(using: proxy)
                     }
                     .onChange(of: timelineEntries.last?.id) { oldID, newID in
                         guard hasCompletedInitialScroll,
-                              let newID,
-                              newID != oldID,
-                              isNearTimelineBottom
-                                || timelineEntries.last?.message.direction == .outgoing else {
+                            let newID,
+                            newID != oldID,
+                            isNearTimelineBottom
+                                || timelineEntries.last?.message.direction
+                                    == .outgoing
+                        else {
                             return
                         }
                         scrollToBottom(proxy, animated: true)
+                    }
+                    .onChange(of: model.isLoadingOlderHistory) {
+                        wasLoading,
+                        isLoading in
+                        guard wasLoading, !isLoading else { return }
+                        // Restore the scroll position so the newly loaded
+                        // page appears above the previously visible one. Only
+                        // while the user is still at the top: a slow page must
+                        // never yank the timeline away from where the user
+                        // scrolled while it was loading.
+                        if let anchor = historyLoadAnchorID,
+                            historyTopTriggerVisible
+                        {
+                            Task { @MainActor in
+                                await Task.yield()
+                                proxy.scrollTo(anchor, anchor: .top)
+                                historyLoadAnchorID = nil
+                            }
+                        } else {
+                            historyLoadAnchorID = nil
+                        }
+                        // The trigger is one-shot per visibility cycle.
+                        // Re-arm it whenever a load settles so the next
+                        // scroll gesture can fire again even if this page
+                        // inserted nothing.
+                        historyTopTriggerArmed = true
+                        if timelineEntries.isEmpty {
+                            handleEmptyHistoryLoadCompleted()
+                        } else if historyTopTriggerVisible {
+                            // The page left the sentinel on screen: it either
+                            // inserted no rows (reactions, duplicates) or the
+                            // anchor scroll did not push it away. While the
+                            // user stays at the top, continue through such
+                            // pages so scroll-up never appears dead. Every
+                            // page advances the server cursor, so this loop
+                            // is bounded by the archive itself.
+                            if timelineEntries.count
+                                == historyLoadEntryCount,
+                                model.hasMoreOlderHistory,
+                                historyAutoContinueCount < 6
+                            {
+                                historyAutoContinueCount += 1
+                                triggerOlderHistoryLoad()
+                            } else {
+                                historyAutoContinueCount = 0
+                            }
+                        }
                     }
                     .onChange(of: timelineEntries.count) { _, _ in
                         selectedMessageIDs.formIntersection(
                             Set(timelineEntries.map(\.id))
                         )
+                        guard historyLoadAnchorID != nil,
+                            !model.isLoadingOlderHistory,
+                            historyTopTriggerVisible,
+                            let anchor = historyLoadAnchorID
+                        else { return }
+                        Task { @MainActor in
+                            await Task.yield()
+                            proxy.scrollTo(anchor, anchor: .top)
+                            historyLoadAnchorID = nil
+                            historyTopTriggerArmed = true
+                        }
                     }
 
                     if hasCompletedInitialScroll,
-                       !timelineEntries.isEmpty,
-                       !isNearTimelineBottom {
+                        !timelineEntries.isEmpty,
+                        !isNearTimelineBottom
+                    {
                         jumpToLatestButton(using: proxy)
                             .padding(.trailing, 14)
                             .padding(.bottom, 12)
-                            .transition(.scale(scale: 0.82).combined(with: .opacity))
+                            .transition(
+                                .scale(scale: 0.82).combined(with: .opacity)
+                            )
                             .zIndex(10)
                     }
                 }
@@ -439,27 +871,27 @@ struct ChatView: View {
 
     @ViewBuilder
     private var timelineBottomSentinel: some View {
-#if os(iOS)
-        Color.clear
-            .frame(height: 1)
-            .accessibilityHidden(true)
-            .id(Self.bottomAnchorID)
-#else
-        Color.clear
-            .frame(height: 1)
-            .background {
-                GeometryReader { geometry in
-                    Color.clear.preference(
-                        key: TimelineBottomYPreferenceKey.self,
-                        value: geometry.frame(
-                            in: .named(Self.timelineCoordinateSpace)
-                        ).maxY
-                    )
+        #if os(iOS)
+            Color.clear
+                .frame(height: 1)
+                .accessibilityHidden(true)
+                .id(Self.bottomAnchorID)
+        #else
+            Color.clear
+                .frame(height: 1)
+                .background {
+                    GeometryReader { geometry in
+                        Color.clear.preference(
+                            key: TimelineBottomYPreferenceKey.self,
+                            value: geometry.frame(
+                                in: .named(Self.timelineCoordinateSpace)
+                            ).maxY
+                        )
+                    }
                 }
-            }
-            .accessibilityHidden(true)
-            .id(Self.bottomAnchorID)
-#endif
+                .accessibilityHidden(true)
+                .id(Self.bottomAnchorID)
+        #endif
     }
 
     private var selectionActionBar: some View {
@@ -495,7 +927,8 @@ struct ChatView: View {
                 }
 
                 if !selectedTimelineMessages.isEmpty,
-                   selectedTimelineMessages.allSatisfy(\.canBeRetracted) {
+                    selectedTimelineMessages.allSatisfy(\.canBeRetracted)
+                {
                     Button(role: .destructive) {
                         destructiveAction = .init(
                             kind: .retract,
@@ -521,12 +954,6 @@ struct ChatView: View {
 
     private var composer: some View {
         VStack(spacing: 8) {
-            if let editingMessage {
-                editingBanner(editingMessage)
-            } else if let replyingToMessage {
-                replyBanner(replyingToMessage)
-            }
-
             HStack(alignment: .bottom, spacing: 8) {
                 Group {
                     if isCapturePresentationVisible {
@@ -548,46 +975,49 @@ struct ChatView: View {
         }
         .padding(.top, 6)
         .background(Color.clear)
-        .animation(.easeInOut(duration: 0.18), value: isCapturePresentationVisible)
+        .animation(
+            .easeInOut(duration: 0.18),
+            value: isCapturePresentationVisible
+        )
     }
 
     private var messageInput: some View {
-        HStack(alignment: .bottom, spacing: 8) {
-            TextField(
-                editingMessageID == nil ? "Сообщение" : "Изменить сообщение",
-                text: $draft,
-                axis: .vertical
-            )
-            .focused($isComposerFocused)
-            .lineLimit(1...6)
-            .textFieldStyle(.plain)
-            .submitLabel(.send)
-            .onSubmit { sendDraft() }
+        VStack {
+            if let editingMessage {
+                editingBanner(editingMessage)
+            } else if let replyingToMessage {
+                replyBanner(replyingToMessage)
+            }
+            HStack(alignment: .center, spacing: 8) {
+                TextField(
+                    editingMessageID == nil
+                        ? "Сообщение" : "Изменить сообщение",
+                    text: $draft,
+                    axis: .vertical
+                )
+                .focused($isComposerFocused)
+                .lineLimit(1...6)
+                .textFieldStyle(.plain)
+                .submitLabel(.send)
+                .onSubmit { sendDraft() }
 
-            Image(systemName: "face.smiling")
-                .font(.system(size: 20, weight: .regular))
-                .foregroundStyle(.secondary)
-                .padding(.bottom, 1)
-                .accessibilityHidden(true)
+                Button {
+                    emojiPickerPresentation = .composer
+                } label: {
+                    Image(systemName: "face.smiling")
+                        .font(.system(size: 20, weight: .regular))
+                        .foregroundStyle(.secondary)
+                        .padding(.bottom, 1)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Эмодзи")
+            }
         }
         .padding(.leading, 14)
         .padding(.trailing, 12)
         .padding(.vertical, 9)
         .frame(minHeight: 42)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 21, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 21, style: .continuous)
-                .stroke(
-                    LinearGradient(
-                        colors: [Color.white.opacity(0.3), Color.secondary.opacity(0.18)],
-                        startPoint: .top,
-                        endPoint: .bottom
-                    ),
-                    lineWidth: 0.75
-                )
-        )
-        .shadow(color: .black.opacity(0.075), radius: 8, y: 2)
-        .contentShape(RoundedRectangle(cornerRadius: 21, style: .continuous))
+        .glassEffect(in: .rect(cornerRadius: 21))
     }
 
     @ViewBuilder
@@ -596,18 +1026,18 @@ struct ChatView: View {
             Button(action: sendDraft) {
                 Image(systemName: "arrow.up")
                     .font(.system(size: 18, weight: .bold))
-                    .foregroundStyle(canUseComposer ? Color.accentColor : Color.secondary)
-                    .frame(width: 42, height: 42)
-                    .background(.ultraThinMaterial, in: Circle())
-                    .overlay(
-                        Circle()
-                            .stroke(Color.secondary.opacity(0.2), lineWidth: 0.75)
+                    .foregroundStyle(
+                        canUseComposer ? Color.accentColor : Color.secondary
                     )
-                    .shadow(color: .black.opacity(0.075), radius: 8, y: 2)
+                    .frame(width: 42, height: 42)
+                //                    .background(.ultraThinMaterial, in: Circle())
             }
             .buttonStyle(.plain)
             .disabled(!canUseComposer)
-            .accessibilityLabel(editingMessageID == nil ? "Отправить" : "Сохранить исправление")
+            .accessibilityLabel(
+                editingMessageID == nil ? "Отправить" : "Сохранить исправление"
+            )
+            .glassEffect()
         } else {
             TelegramRecordButton(
                 mode: .voice,
@@ -626,7 +1056,16 @@ struct ChatView: View {
             .overlay(alignment: .top) {
                 if isCapturePresentationVisible, !captureIsLocked {
                     recordingLockIndicator
-                        .offset(y: -74 + min(12, max(-14, captureDragTranslation.height * 0.12)))
+                        .offset(
+                            y: -74
+                                + min(
+                                    12,
+                                    max(
+                                        -14,
+                                        captureDragTranslation.height * 0.12
+                                    )
+                                )
+                        )
                         .transition(.scale.combined(with: .opacity))
                 }
             }
@@ -635,21 +1074,26 @@ struct ChatView: View {
 
     private var attachmentButton: some View {
         Menu {
-#if os(iOS)
-            Button {
-                presentCamera()
-            } label: {
-                Label("Камера", systemImage: "camera.fill")
-            }
-            .disabled(!SystemPhotoCameraView.isAvailable)
-#endif
+            #if os(iOS)
+                Button {
+                    presentCamera()
+                } label: {
+                    Label("Камера", systemImage: "camera.fill")
+                }
+                .disabled(!SystemPhotoCameraView.isAvailable)
+            #endif
             Button {
                 dismissKeyboard()
                 showingMediaPicker = true
             } label: {
-                Label("Фото или видео (несколько)", systemImage: "photo.on.rectangle")
+                Label(
+                    "Фото или видео (несколько)",
+                    systemImage: "photo.on.rectangle"
+                )
             }
-            Button { presentFileImporter(.audio) } label: {
+            Button {
+                presentFileImporter(.audio)
+            } label: {
                 Label("Музыка", systemImage: "music.note")
             }
             Button {
@@ -665,17 +1109,13 @@ struct ChatView: View {
                 Label("Отправить геопозицию", systemImage: "location.fill")
             }
             Divider()
-            Button { presentFileImporter(.files) } label: {
+            Button {
+                presentFileImporter(.files)
+            } label: {
                 Label("Файлы (несколько)", systemImage: "doc.on.doc")
             }
         } label: {
             ZStack {
-                Circle()
-                    .fill(.ultraThinMaterial)
-                    .overlay(
-                        Circle()
-                            .stroke(Color.secondary.opacity(0.18), lineWidth: 0.75)
-                    )
                 if model.isSendingAttachment || isPreparingAttachments {
                     ProgressView()
                         .controlSize(.small)
@@ -686,28 +1126,31 @@ struct ChatView: View {
                 }
             }
             .frame(width: 42, height: 42)
-            .shadow(color: .black.opacity(0.075), radius: 8, y: 2)
             .contentShape(Circle())
+            .glassEffect()
         }
         .buttonStyle(.plain)
         .accessibilityLabel("Добавить вложение")
-        .help("Открыть камеру или добавить фото, видео, файлы, музыку и геопозицию")
+        .help(
+            "Открыть камеру или добавить фото, видео, файлы, музыку и геопозицию"
+        )
     }
 
     private var editingMessage: ChatMessage? {
         guard let editingMessageID else { return nil }
-        return model.selectedMessages.first { $0.id == editingMessageID }
+        return model.selectedMessages.first { $0.clientID == editingMessageID }
     }
 
     private var replyingToMessage: ChatMessage? {
         guard let replyingToMessageID else { return nil }
         return model.selectedMessages.first {
-            $0.id == replyingToMessageID && $0.canBeRepliedTo
+            $0.clientID == replyingToMessageID && $0.canBeRepliedTo
         }
     }
 
     private var requiresOMEMO: Bool {
-        editingMessage?.security == .omemo || (editingMessageID == nil && encryptionEnabled)
+        editingMessage?.security == .omemo
+            || (editingMessageID == nil && encryptionEnabled)
     }
 
     private var encryptionEnabled: Bool {
@@ -716,28 +1159,17 @@ struct ChatView: View {
 
     private var encryptionIcon: String {
         if !encryptionEnabled { return "lock.open" }
-        return model.isOMEMOReady ? "lock.fill" : "lock.trianglebadge.exclamationmark"
+        return model.isOMEMOReady
+            ? "lock.fill" : "lock.trianglebadge.exclamationmark"
     }
 
     private var liveConversation: Conversation {
-        model.conversations.first(where: { $0.id == conversation.id }) ?? conversation
+        model.conversations.first(where: { $0.jid == conversation.jid })
+            ?? conversation
     }
 
     private var chatNavigationTitle: some View {
-        VStack(spacing: 0) {
-            Text(liveConversation.displayName)
-                .font(.headline)
-                .lineLimit(1)
-            if let typingText = model.typingText(for: liveConversation) {
-                Text(typingText)
-                    .font(.caption2.weight(.medium))
-                    .foregroundStyle(.tint)
-                    .lineLimit(1)
-                    .transition(.opacity)
-            }
-        }
-        .animation(.easeInOut(duration: 0.16), value: model.typingText(for: liveConversation))
-        .accessibilityElement(children: .combine)
+        ChatNavigationTitle(model: model, conversation: conversation)
     }
 
     private var canSendToConversation: Bool {
@@ -746,7 +1178,8 @@ struct ChatView: View {
 
     private var emptyChatTitle: String {
         if conversation.isGroup { return "Групповая комната" }
-        return encryptionEnabled ? "Новый защищённый чат" : "Новый чат без шифрования"
+        return encryptionEnabled
+            ? "Новый защищённый чат" : "Новый чат без шифрования"
     }
 
     private var emptyChatDescription: String {
@@ -762,11 +1195,17 @@ struct ChatView: View {
 
     private var groupJoinBanner: some View {
         HStack(spacing: 10) {
-            Image(systemName: liveConversation.invitedBy == nil ? "person.3" : "envelope.badge")
-                .foregroundStyle(.tint)
+            Image(
+                systemName: liveConversation.invitedBy == nil
+                    ? "person.3" : "envelope.badge"
+            )
+            .foregroundStyle(.tint)
             VStack(alignment: .leading, spacing: 2) {
-                Text(liveConversation.invitedBy == nil ? "Комната не подключена" : "Вас пригласили в комнату")
-                    .font(.subheadline.weight(.semibold))
+                Text(
+                    liveConversation.invitedBy == nil
+                        ? "Комната не подключена" : "Вас пригласили в комнату"
+                )
+                .font(.subheadline.weight(.semibold))
                 Text(liveConversation.invitedBy ?? conversation.jid)
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -813,7 +1252,9 @@ struct ChatView: View {
     }
 
     private var recordingCancelHintOpacity: Double {
-        ComposerRecordingGesturePolicy.cancelHintOpacity(for: captureDragTranslation)
+        ComposerRecordingGesturePolicy.cancelHintOpacity(
+            for: captureDragTranslation
+        )
     }
 
     private var recordingStatusStrip: some View {
@@ -847,11 +1288,7 @@ struct ChatView: View {
         }
         .padding(.horizontal, 13)
         .frame(minHeight: 42)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 21, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 21, style: .continuous)
-                .stroke(Color.secondary.opacity(0.2), lineWidth: 0.75)
-        )
+        .glassEffect()
     }
 
     private var recordingLockIndicator: some View {
@@ -863,8 +1300,7 @@ struct ChatView: View {
         }
         .foregroundStyle(.primary)
         .frame(width: 38, height: 55)
-        .background(.ultraThinMaterial, in: Capsule())
-        .overlay(Capsule().stroke(Color.secondary.opacity(0.22), lineWidth: 0.75))
+        .glassEffect(in: Capsule())
         .accessibilityLabel("Проведите вверх, чтобы зафиксировать запись")
     }
 
@@ -876,9 +1312,10 @@ struct ChatView: View {
 
     private func beginCaptureGesture() {
         guard canUseComposer,
-              draftIsEmpty,
-              editingMessageID == nil,
-              !isCapturePresentationVisible else { return }
+            draftIsEmpty,
+            editingMessageID == nil,
+            !isCapturePresentationVisible
+        else { return }
 
         dismissKeyboard()
         model.audioPlayback.stop()
@@ -896,8 +1333,9 @@ struct ChatView: View {
             do {
                 try await audioRecorder.start()
                 guard !Task.isCancelled,
-                      captureAttemptID == attemptID,
-                      captureGestureIsActive || captureIsLocked else {
+                    captureAttemptID == attemptID,
+                    captureGestureIsActive || captureIsLocked
+                else {
                     audioRecorder.cancel()
                     return
                 }
@@ -1008,30 +1446,33 @@ struct ChatView: View {
 
     private func dismissKeyboard() {
         isComposerFocused = false
-#if os(iOS)
-        UIApplication.shared.sendAction(
-            #selector(UIResponder.resignFirstResponder),
-            to: nil,
-            from: nil,
-            for: nil
-        )
-#endif
+        #if os(iOS)
+            UIApplication.shared.sendAction(
+                #selector(UIResponder.resignFirstResponder),
+                to: nil,
+                from: nil,
+                for: nil
+            )
+        #endif
     }
 
     private func impactFeedback() {
-#if os(iOS)
-        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-#endif
+        #if os(iOS)
+            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        #endif
     }
 
     private func sendDraft() {
         let outgoing = draft
         guard canSendToConversation,
-              !outgoing.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+            !outgoing.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        else { return }
         draft = ""
         if let editingMessageID {
             self.editingMessageID = nil
-            Task { await model.editMessage(id: editingMessageID, newBody: outgoing) }
+            Task {
+                await model.editMessage(id: editingMessageID, newBody: outgoing)
+            }
         } else {
             let replyTarget = replyingToMessage
             replyingToMessageID = nil
@@ -1045,11 +1486,12 @@ struct ChatView: View {
         }
     }
 
+    @discardableResult
     private func stageImportedFiles(
         _ urls: [URL],
         preferredKind: ChatMessage.Kind? = nil
-    ) async {
-        guard !urls.isEmpty else { return }
+    ) async -> Bool {
+        guard !urls.isEmpty else { return false }
         isPreparingAttachments = true
         defer { isPreparingAttachments = false }
         let prepared = await model.prepareAttachmentDrafts(
@@ -1057,10 +1499,11 @@ struct ChatView: View {
             preferredKind: preferredKind,
             for: conversation.jid
         )
-        guard !prepared.isEmpty else { return }
+        guard !prepared.isEmpty else { return false }
         model.discardAttachmentDrafts(attachmentDrafts)
         attachmentDrafts = prepared
         presentAttachmentPreviewAfterPickerDismissal()
+        return true
     }
 
     private func stageCapturedMedia(_ media: CapturedCameraMedia) async {
@@ -1069,27 +1512,72 @@ struct ChatView: View {
             photoCameraIsPreparingResult = false
             releaseArchiveSyncAfterCapture()
         }
-        await stageImportedFiles([media.url], preferredKind: media.kind)
+        let logger = Logger(subsystem: "Luma", category: "video-preview")
+        await waitForCameraFileSettling(at: media.url, logger: logger)
+        let staged = await stageImportedFiles(
+            [media.url],
+            preferredKind: media.kind
+        )
+        if staged {
+            if let draft = attachmentDrafts.last {
+                logger.info(
+                    "camera draft staged: kind=\(draft.kind.rawValue) mime=\(draft.mimeType) size=\(draft.byteCount) duration=\(String(describing: draft.duration)) thumbnailBytes=\(draft.thumbnailData?.count ?? 0)"
+                )
+            }
+        } else {
+            logger.error("camera staging produced no drafts")
+            if model.errorMessage == nil {
+                model.errorMessage =
+                    "Камера вернула файл, который не удалось подготовить к отправке."
+            }
+        }
+    }
+
+    /// The picker can hand over a movie whose final bytes are still being
+    /// flushed. Wait until the file size stops changing so staging never
+    /// copies a truncated file.
+    private func waitForCameraFileSettling(at url: URL, logger: Logger) async {
+        guard
+            let initial = try? url.resourceValues(forKeys: [.fileSizeKey])
+                .fileSize
+        else {
+            return
+        }
+        var previous = initial
+        for _ in 0..<10 {
+            try? await Task.sleep(nanoseconds: 250_000_000)
+            guard
+                let current = try? url.resourceValues(forKeys: [.fileSizeKey])
+                    .fileSize
+            else {
+                return
+            }
+            if current == previous {
+                return
+            }
+            previous = current
+        }
+        logger.warning("camera file size kept changing; staging anyway")
     }
 
     private func presentCamera() {
-#if os(iOS)
-        guard SystemPhotoCameraView.isAvailable else {
-            model.errorMessage = "Камера недоступна на этом устройстве."
-            return
-        }
-        dismissKeyboard()
-        model.audioPlayback.stop()
-        photoCameraIsPreparingResult = false
-        if !captureSuspendsArchiveSync {
-            captureSuspendsArchiveSync = true
-            model.setVideoNoteCaptureActive(true)
-        }
-        Task { @MainActor in
-            await Task.yield()
-            showingPhotoCamera = true
-        }
-#endif
+        #if os(iOS)
+            guard SystemPhotoCameraView.isAvailable else {
+                model.errorMessage = "Камера недоступна на этом устройстве."
+                return
+            }
+            dismissKeyboard()
+            model.audioPlayback.stop()
+            photoCameraIsPreparingResult = false
+            if !captureSuspendsArchiveSync {
+                captureSuspendsArchiveSync = true
+                model.setVideoNoteCaptureActive(true)
+            }
+            Task { @MainActor in
+                await Task.yield()
+                showingPhotoCamera = true
+            }
+        #endif
     }
 
     private func presentVideoNoteRecorder() {
@@ -1141,8 +1629,9 @@ struct ChatView: View {
     }
 
     private func presentReplyThread(rootID: String, selectedReplyID: String) {
-        guard model.message(withID: rootID, in: conversation.id) != nil else {
-            model.errorMessage = "Исходное сообщение ещё не загружено в локальную историю."
+        guard model.message(withID: rootID, in: conversation.jid) != nil else {
+            model.errorMessage =
+                "Исходное сообщение ещё не загружено в локальную историю."
             return
         }
         withAnimation(.easeOut(duration: 0.2)) {
@@ -1163,7 +1652,7 @@ struct ChatView: View {
         for root: ChatMessage,
         selectedReplyID: String
     ) -> [ChatMessage] {
-        var sourceIdentifiers: Set<String> = [root.id]
+        var sourceIdentifiers: Set<String> = [root.clientID]
         if let stanzaID = root.stanzaID { sourceIdentifiers.insert(stanzaID) }
         if let replyIdentifier = root.replyIdentifier {
             sourceIdentifiers.insert(replyIdentifier)
@@ -1173,12 +1662,18 @@ struct ChatView: View {
             guard let replyToID = candidate.replyToID else { return false }
             return sourceIdentifiers.contains(replyToID)
         }
-        if !replies.contains(where: { $0.id == selectedReplyID }),
-           let selected = model.message(withID: selectedReplyID, in: conversation.id) {
+        if !replies.contains(where: { $0.clientID == selectedReplyID }),
+            let selected = model.message(
+                withID: selectedReplyID,
+                in: conversation.jid
+            )
+        {
             replies.append(selected)
         }
         return replies.sorted { lhs, rhs in
-            if lhs.timestamp == rhs.timestamp { return lhs.id < rhs.id }
+            if lhs.timestamp == rhs.timestamp {
+                return lhs.clientID < rhs.clientID
+            }
             return lhs.timestamp < rhs.timestamp
         }
     }
@@ -1189,7 +1684,6 @@ struct ChatView: View {
         var sourceURLs: [URL] = []
         var failedItemCount = 0
         defer {
-            pickedMediaItems = []
             isPreparingAttachments = false
             sourceURLs.forEach(discardPickedMediaFile)
         }
@@ -1211,7 +1705,8 @@ struct ChatView: View {
         }
 
         guard !sourceURLs.isEmpty else {
-            model.errorMessage = MediaPickerError.cannotReadSelection.errorDescription
+            model.errorMessage =
+                MediaPickerError.cannotReadSelection.errorDescription
             return
         }
         failedItemCount += max(0, sourceURLs.count - prepared.count)
@@ -1220,7 +1715,8 @@ struct ChatView: View {
         attachmentDrafts = prepared
         presentAttachmentPreviewAfterPickerDismissal()
         if failedItemCount > 0 {
-            model.errorMessage = "Не удалось подготовить \(failedItemCount) из \(items.prefix(20).count) выбранных фото или видео. Остальные готовы к отправке."
+            model.errorMessage =
+                "Не удалось подготовить \(failedItemCount) из \(items.prefix(20).count) выбранных фото или видео. Остальные готовы к отправке."
         }
     }
 
@@ -1246,13 +1742,15 @@ struct ChatView: View {
 
             for _ in 0..<120 {
                 guard !Task.isCancelled,
-                      attachmentPreviewPresentationPending,
-                      !attachmentDrafts.isEmpty else { return }
+                    attachmentPreviewPresentationPending,
+                    !attachmentDrafts.isEmpty
+                else { return }
                 if !showingMediaPicker,
-                   !showingPhotoCamera,
-                   !showingFileImporter,
-                   !isPreparingAttachments,
-                   !showingAttachmentPreview {
+                    !showingPhotoCamera,
+                    !showingFileImporter,
+                    !isPreparingAttachments,
+                    !showingAttachmentPreview
+                {
                     attachmentPreviewPresentationPending = false
                     showingAttachmentPreview = true
                     attachmentPreviewPresentationTask = nil
@@ -1268,7 +1766,9 @@ struct ChatView: View {
         }
     }
 
-    private func loadPickedMediaFile(_ item: PhotosPickerItem) async throws -> URL {
+    private func loadPickedMediaFile(_ item: PhotosPickerItem) async throws
+        -> URL
+    {
         let supportsImage = item.supportedContentTypes.contains {
             $0.conforms(to: .image)
         }
@@ -1299,12 +1799,16 @@ struct ChatView: View {
     }
 
     private func loadPickedPhoto(_ item: PhotosPickerItem) async throws -> URL {
-        let fileRepresentation = try? await item.loadTransferable(type: PickedPhoto.self)
+        let fileRepresentation = try? await item.loadTransferable(
+            type: PickedPhoto.self
+        )
         if let photo = fileRepresentation {
             return photo.url
         }
 
-        let dataRepresentation = try await item.loadTransferable(type: Data.self)
+        let dataRepresentation = try await item.loadTransferable(
+            type: Data.self
+        )
         guard let data = dataRepresentation, !data.isEmpty else {
             throw MediaPickerError.cannotReadSelection
         }
@@ -1314,7 +1818,9 @@ struct ChatView: View {
     }
 
     private func loadPickedVideo(_ item: PhotosPickerItem) async throws -> URL {
-        guard let video = try await item.loadTransferable(type: PickedVideo.self) else {
+        guard
+            let video = try await item.loadTransferable(type: PickedVideo.self)
+        else {
             throw MediaPickerError.cannotReadSelection
         }
         return video.url
@@ -1336,9 +1842,21 @@ struct ChatView: View {
         guard message.canBeEdited else { return }
         cancelComposerRecording(feedback: false)
         replyingToMessageID = nil
-        editingMessageID = message.id
+        editingMessageID = message.clientID
         draft = message.body
         isComposerFocused = true
+    }
+
+    private func handleEmojiSelection(
+        _ emoji: String,
+        for presentation: EmojiPickerPresentation
+    ) {
+        switch presentation {
+        case .reaction(let message):
+            Task { await model.toggleReaction(emoji, on: message) }
+        case .composer:
+            draft.append(emoji)
+        }
     }
 
     private func beginMessageSelection(with message: ChatMessage) {
@@ -1346,14 +1864,14 @@ struct ChatView: View {
         dismissKeyboard()
         if editingMessageID != nil { cancelEditing() }
         cancelReplying()
-        selectedMessageIDs.insert(message.id)
+        selectedMessageIDs.insert(message.clientID)
     }
 
     private func toggleMessageSelection(_ message: ChatMessage) {
-        if selectedMessageIDs.contains(message.id) {
-            selectedMessageIDs.remove(message.id)
+        if selectedMessageIDs.contains(message.clientID) {
+            selectedMessageIDs.remove(message.clientID)
         } else {
-            selectedMessageIDs.insert(message.id)
+            selectedMessageIDs.insert(message.clientID)
         }
     }
 
@@ -1374,7 +1892,7 @@ struct ChatView: View {
             editingMessageID = nil
             draft = ""
         }
-        replyingToMessageID = message.id
+        replyingToMessageID = message.clientID
         isComposerFocused = true
     }
 
@@ -1392,8 +1910,6 @@ struct ChatView: View {
             Capsule()
                 .fill(Color.accentColor)
                 .frame(width: 3, height: 34)
-            Image(systemName: "pencil")
-                .foregroundStyle(.tint)
             VStack(alignment: .leading, spacing: 1) {
                 Text("Редактирование")
                     .font(.caption.weight(.semibold))
@@ -1405,45 +1921,49 @@ struct ChatView: View {
             }
             Spacer()
             Button(action: cancelEditing) {
-                Image(systemName: "xmark.circle.fill")
+                Image(systemName: "xmark")
                     .foregroundStyle(.secondary)
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Отменить редактирование")
         }
-        .padding(.horizontal, 14)
-        .padding(.top, 8)
     }
 
+    /// Telegram-style reply plate: a rounded card above the composer with
+    /// the reply header, a close button and the quoted message preview.
     private func replyBanner(_ message: ChatMessage) -> some View {
-        HStack(spacing: 10) {
+        HStack(alignment: .center) {
             Capsule()
                 .fill(Color.accentColor)
-                .frame(width: 3, height: 36)
-            VStack(alignment: .leading, spacing: 1) {
-                Text("Ответ: \(message.senderDisplayName ?? model.displayName(for: message.senderJID))")
+                .frame(width: 3, height: 34)
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 7) {
+                    Text(
+                        "Ответ: \(message.senderDisplayName ?? model.displayName(for: message.senderJID))"
+                    )
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.tint)
+                    .lineLimit(1)
+                }
                 Text(message.quotePreview)
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(.primary.opacity(0.8))
                     .lineLimit(1)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
             Spacer()
             Button(action: cancelReplying) {
-                Image(systemName: "xmark.circle.fill")
+                Image(systemName: "xmark")
                     .foregroundStyle(.secondary)
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Отменить ответ")
         }
-        .padding(.horizontal, 14)
-        .padding(.top, 8)
-        .padding(.bottom, 3)
+        .accessibilityIdentifier("reply-banner")
     }
 
     private func perform(_ action: MessageDestructiveAction) {
-        let ids = Set(action.messages.map(\.id))
+        let ids = Set(action.messages.map(\.clientID))
         if let editingMessageID, ids.contains(editingMessageID) {
             cancelEditing()
         }
@@ -1453,11 +1973,11 @@ struct ChatView: View {
         selectedMessageIDs.subtract(ids)
         switch action.kind {
         case .localDelete:
-            model.deleteMessagesLocally(ids: ids, in: conversation.id)
+            model.deleteMessagesLocally(ids: ids, in: conversation.jid)
         case .retract:
             Task {
                 for message in action.messages where message.canBeRetracted {
-                    await model.retractMessage(id: message.id)
+                    await model.retractMessage(id: message.clientID)
                 }
             }
         }
@@ -1481,15 +2001,10 @@ struct ChatView: View {
                 .font(.system(size: 20, weight: .semibold))
                 .foregroundStyle(.primary)
                 .frame(width: 46, height: 46)
-                .background(.ultraThinMaterial, in: Circle())
-                .overlay {
-                    Circle()
-                        .stroke(Color.accentColor.opacity(0.42), lineWidth: 1)
-                }
-                .shadow(color: .black.opacity(0.16), radius: 10, y: 4)
         }
         .buttonStyle(.plain)
         .contentShape(Circle())
+        .glassEffect()
         .accessibilityLabel("Перейти к последнему сообщению")
         .help("Перейти в конец истории")
     }
@@ -1504,9 +2019,60 @@ struct ChatView: View {
         }
     }
 
-    private func performInitialScrollAfterLayout(using proxy: ScrollViewProxy) async {
-        guard !hasCompletedInitialScroll,
-              !model.selectedMessages.isEmpty else { return }
+    /// Starts one interactive older-history page load from the top sentinel.
+    /// Remembers the first visible entry so the viewport can be restored when
+    /// the page arrives.
+    private func triggerOlderHistoryLoad() {
+        historyTopTriggerArmed = false
+        historyLoadAnchorID = timelineEntries.first?.id
+        historyLoadEntryCount = timelineEntries.count
+        if hasMoreLocalHistory {
+            visibleLocalMessageCount = min(
+                messages.count,
+                visibleLocalMessageCount + Self.localHistoryPageSize
+            )
+            localHistoryExhausted = visibleLocalMessageCount >= messages.count
+            rebuildTimelineEntries(from: messages)
+            historyTopTriggerArmed = true
+            return
+        }
+        model.loadOlderHistoryForSelectedConversation()
+    }
+
+    /// A finished load left the timeline empty. Retry a bounded number of
+    /// times with a short delay: the first page of an empty chat can fail
+    /// transiently (timeout, reconnect), and an empty timeline has no scroll
+    /// gesture that could retry it manually.
+    private func handleEmptyHistoryLoadCompleted() {
+        guard model.hasMoreOlderHistory,
+            !model.isLoadingOlderHistory,
+            emptyHistoryRetryCount < 3
+        else { return }
+        emptyHistoryRetryCount += 1
+        Task { @MainActor [weak model] in
+            try? await Task.sleep(nanoseconds: 1_500_000_000)
+            guard !Task.isCancelled,
+                timelineEntries.isEmpty,
+                model?.hasMoreOlderHistory == true,
+                model?.isLoadingOlderHistory == false
+            else { return }
+            model?.loadOlderHistoryForSelectedConversation()
+        }
+    }
+
+    private func performInitialScrollAfterLayout(using proxy: ScrollViewProxy)
+        async
+    {
+        guard !hasCompletedInitialScroll else { return }
+        guard !model.selectedMessages.isEmpty else {
+            // Empty conversation: there is nothing to scroll to, so the
+            // scroll-to-top gesture can never fire. Load the first page of
+            // history directly so a newly-created or emptied chat still fills.
+            if model.hasMoreOlderHistory, !model.isLoadingOlderHistory {
+                model.loadOlderHistoryForSelectedConversation()
+            }
+            return
+        }
 
         // ScrollViewReader can receive its first command before a long
         // LazyVStack has published the bottom anchor. Yield once for layout,
@@ -1549,144 +2115,151 @@ private struct TimelineBottomYPreferenceKey: PreferenceKey {
 }
 
 #if os(iOS)
-/// Reads the real UIScrollView offset without replacing its delegate or
-/// installing another pan recognizer. SwiftUI geometry preferences can stop
-/// updating after a programmatic ScrollViewReader jump on some iOS releases.
-private struct ChatScrollMetricsObserver: UIViewRepresentable {
-    let identity: String
-    let onNearBottomChange: (Bool) -> Void
+    /// Reads the real UIScrollView offset without replacing its delegate or
+    /// installing another pan recognizer. SwiftUI geometry preferences can stop
+    /// updating after a programmatic ScrollViewReader jump on some iOS releases.
+    private struct ChatScrollMetricsObserver: UIViewRepresentable {
+        let identity: String
+        let onNearBottomChange: (Bool) -> Void
 
-    init(identity: String, onNearBottomChange: @escaping (Bool) -> Void) {
-        self.identity = identity
-        self.onNearBottomChange = onNearBottomChange
-    }
-
-    func makeUIView(context: Context) -> ObserverView {
-        let view = ObserverView(frame: .zero)
-        view.identity = identity
-        view.onNearBottomChange = onNearBottomChange
-        return view
-    }
-
-    func updateUIView(_ uiView: ObserverView, context: Context) {
-        uiView.onNearBottomChange = onNearBottomChange
-        if uiView.identity != identity {
-            uiView.identity = identity
-            uiView.resetReportedState()
-        }
-        uiView.attachToAncestorScrollViewIfNeeded()
-    }
-
-    static func dismantleUIView(_ uiView: ObserverView, coordinator: ()) {
-        uiView.detach()
-    }
-
-    final class ObserverView: UIView {
-        var identity = ""
-        var onNearBottomChange: ((Bool) -> Void)?
-
-        private weak var observedScrollView: UIScrollView?
-        private var observations: [NSKeyValueObservation] = []
-        private var lastNearBottom: Bool?
-        private var attachmentScheduled = false
-        private var metricsReportScheduled = false
-
-        override init(frame: CGRect) {
-            super.init(frame: frame)
-            isUserInteractionEnabled = false
-            backgroundColor = .clear
+        init(identity: String, onNearBottomChange: @escaping (Bool) -> Void) {
+            self.identity = identity
+            self.onNearBottomChange = onNearBottomChange
         }
 
-        required init?(coder: NSCoder) {
-            nil
+        func makeUIView(context: Context) -> ObserverView {
+            let view = ObserverView(frame: .zero)
+            view.identity = identity
+            view.onNearBottomChange = onNearBottomChange
+            return view
         }
 
-        override func didMoveToWindow() {
-            super.didMoveToWindow()
-            attachToAncestorScrollViewIfNeeded()
+        func updateUIView(_ uiView: ObserverView, context: Context) {
+            uiView.onNearBottomChange = onNearBottomChange
+            if uiView.identity != identity {
+                uiView.identity = identity
+                uiView.resetReportedState()
+            }
+            uiView.attachToAncestorScrollViewIfNeeded()
         }
 
-        override func didMoveToSuperview() {
-            super.didMoveToSuperview()
-            attachToAncestorScrollViewIfNeeded()
+        static func dismantleUIView(_ uiView: ObserverView, coordinator: ()) {
+            uiView.detach()
         }
 
-        func attachToAncestorScrollViewIfNeeded() {
-            guard window != nil,
-                  !attachmentScheduled else { return }
-            attachmentScheduled = true
-            DispatchQueue.main.async { [weak self] in
-                guard let self else { return }
-                self.attachmentScheduled = false
-                var ancestor = self.superview
-                while let view = ancestor, !(view is UIScrollView) {
-                    ancestor = view.superview
+        final class ObserverView: UIView {
+            var identity = ""
+            var onNearBottomChange: ((Bool) -> Void)?
+
+            private weak var observedScrollView: UIScrollView?
+            private var observations: [NSKeyValueObservation] = []
+            private var lastNearBottom: Bool?
+            private var attachmentScheduled = false
+            private var metricsReportScheduled = false
+
+            override init(frame: CGRect) {
+                super.init(frame: frame)
+                isUserInteractionEnabled = false
+                backgroundColor = .clear
+            }
+
+            required init?(coder: NSCoder) {
+                nil
+            }
+
+            override func didMoveToWindow() {
+                super.didMoveToWindow()
+                attachToAncestorScrollViewIfNeeded()
+            }
+
+            override func didMoveToSuperview() {
+                super.didMoveToSuperview()
+                attachToAncestorScrollViewIfNeeded()
+            }
+
+            func attachToAncestorScrollViewIfNeeded() {
+                guard window != nil,
+                    !attachmentScheduled
+                else { return }
+                attachmentScheduled = true
+                DispatchQueue.main.async { [weak self] in
+                    guard let self else { return }
+                    self.attachmentScheduled = false
+                    var ancestor = self.superview
+                    while let view = ancestor, !(view is UIScrollView) {
+                        ancestor = view.superview
+                    }
+                    guard let scrollView = ancestor as? UIScrollView else {
+                        self.detach()
+                        return
+                    }
+                    self.observe(scrollView)
                 }
-                guard let scrollView = ancestor as? UIScrollView else {
-                    self.detach()
-                    return
+            }
+
+            func resetReportedState() {
+                lastNearBottom = nil
+                scheduleMetricsReport()
+            }
+
+            func detach() {
+                observations.forEach { $0.invalidate() }
+                observations.removeAll(keepingCapacity: false)
+                observedScrollView = nil
+                metricsReportScheduled = false
+            }
+
+            private func observe(_ scrollView: UIScrollView) {
+                guard observedScrollView !== scrollView else { return }
+                detach()
+                observedScrollView = scrollView
+                observations = [
+                    scrollView.observe(
+                        \.contentOffset,
+                        options: [.initial, .new]
+                    ) {
+                        [weak self] _, _ in
+                        self?.scheduleMetricsReport()
+                    },
+                    scrollView.observe(\.contentSize, options: [.new]) {
+                        [weak self] _, _ in
+                        self?.scheduleMetricsReport()
+                    },
+                    scrollView.observe(\.bounds, options: [.new]) {
+                        [weak self] _, _ in
+                        self?.scheduleMetricsReport()
+                    },
+                ]
+            }
+
+            private func scheduleMetricsReport() {
+                guard !metricsReportScheduled else { return }
+                metricsReportScheduled = true
+                DispatchQueue.main.async { [weak self] in
+                    guard let self else { return }
+                    self.metricsReportScheduled = false
+                    self.reportMetricsNow()
                 }
-                self.observe(scrollView)
+            }
+
+            private func reportMetricsNow() {
+                guard let scrollView = observedScrollView else { return }
+                let maximumOffsetY = max(
+                    -scrollView.adjustedContentInset.top,
+                    scrollView.contentSize.height
+                        - scrollView.bounds.height
+                        + scrollView.adjustedContentInset.bottom
+                )
+                let distance = maximumOffsetY - scrollView.contentOffset.y
+                let isNearBottom = ChatScrollPositionPolicy.isNearBottom(
+                    distanceFromBottom: distance
+                )
+                guard lastNearBottom != isNearBottom else { return }
+                lastNearBottom = isNearBottom
+                onNearBottomChange?(isNearBottom)
             }
         }
-
-        func resetReportedState() {
-            lastNearBottom = nil
-            scheduleMetricsReport()
-        }
-
-        func detach() {
-            observations.forEach { $0.invalidate() }
-            observations.removeAll(keepingCapacity: false)
-            observedScrollView = nil
-            metricsReportScheduled = false
-        }
-
-        private func observe(_ scrollView: UIScrollView) {
-            guard observedScrollView !== scrollView else { return }
-            detach()
-            observedScrollView = scrollView
-            observations = [
-                scrollView.observe(\.contentOffset, options: [.initial, .new]) { [weak self] _, _ in
-                    self?.scheduleMetricsReport()
-                },
-                scrollView.observe(\.contentSize, options: [.new]) { [weak self] _, _ in
-                    self?.scheduleMetricsReport()
-                },
-                scrollView.observe(\.bounds, options: [.new]) { [weak self] _, _ in
-                    self?.scheduleMetricsReport()
-                }
-            ]
-        }
-
-        private func scheduleMetricsReport() {
-            guard !metricsReportScheduled else { return }
-            metricsReportScheduled = true
-            DispatchQueue.main.async { [weak self] in
-                guard let self else { return }
-                self.metricsReportScheduled = false
-                self.reportMetricsNow()
-            }
-        }
-
-        private func reportMetricsNow() {
-            guard let scrollView = observedScrollView else { return }
-            let maximumOffsetY = max(
-                -scrollView.adjustedContentInset.top,
-                scrollView.contentSize.height
-                    - scrollView.bounds.height
-                    + scrollView.adjustedContentInset.bottom
-            )
-            let distance = maximumOffsetY - scrollView.contentOffset.y
-            let isNearBottom = ChatScrollPositionPolicy.isNearBottom(
-                distanceFromBottom: distance
-            )
-            guard lastNearBottom != isNearBottom else { return }
-            lastNearBottom = isNearBottom
-            onNearBottomChange?(isNearBottom)
-        }
     }
-}
 #endif
 
 enum ComposerRecordingGestureResolution: Equatable {
@@ -1703,7 +2276,9 @@ struct ComposerRecordingGesturePolicy {
     static let longPressDelayNanoseconds: UInt64 = 240_000_000
     static let minimumLongPressDuration: TimeInterval = 0.22
 
-    static func resolution(for translation: CGSize) -> ComposerRecordingGestureResolution {
+    static func resolution(for translation: CGSize)
+        -> ComposerRecordingGestureResolution
+    {
         let cancelProgress = max(0, -translation.width) / cancelDistance
         let lockProgress = max(0, -translation.height) / lockDistance
         if cancelProgress >= 1, cancelProgress >= lockProgress {
@@ -1717,7 +2292,10 @@ struct ComposerRecordingGesturePolicy {
 
     static func cancelHintOpacity(for translation: CGSize) -> Double {
         let leftwardDistance = max(CGFloat.zero, -translation.width)
-        let fadeAmount = min(maximumCancelHintFade, leftwardDistance / cancelHintFadeDistance)
+        let fadeAmount = min(
+            maximumCancelHintFade,
+            leftwardDistance / cancelHintFadeDistance
+        )
         return Double(CGFloat(1) - fadeAmount)
     }
 
@@ -1762,22 +2340,6 @@ private struct TelegramRecordButton: View {
 
     var body: some View {
         ZStack {
-            Circle()
-                .fill(.ultraThinMaterial)
-                .overlay {
-                    Circle()
-                        .fill(isRecording ? Color.red.opacity(0.13) : Color.clear)
-                }
-                .overlay(
-                    Circle()
-                        .stroke(
-                            isRecording
-                                ? Color.red.opacity(0.42)
-                                : Color.secondary.opacity(0.2),
-                            lineWidth: 0.75
-                        )
-                )
-
             if isFinalizing {
                 ProgressView()
                     .controlSize(.small)
@@ -1791,34 +2353,35 @@ private struct TelegramRecordButton: View {
         }
         .frame(width: 42, height: 42)
         .scaleEffect(isRecording && !isLocked ? 1.34 : (isPressing ? 1.08 : 1))
-        .shadow(
-            color: isRecording ? Color.black.opacity(0.2) : Color.black.opacity(0.075),
-            radius: 8,
-            y: isRecording ? 4 : 2
-        )
         .contentShape(Circle())
-#if os(iOS)
-        .overlay {
-            ComposerRecordTouchSurface(
-                onBegan: { beginPhysicalPress(at: $0) },
-                onMoved: movePhysicalPress,
-                onEnded: { translation, eventTime in
-                    endPhysicalPress(translation, at: eventTime)
-                },
-                onCancelled: cancelPhysicalPress
-            )
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .accessibilityHidden(true)
-        }
-#else
-        .gesture(recordGesture)
-#endif
+        .glassEffect()
+        #if os(iOS)
+            .overlay {
+                ComposerRecordTouchSurface(
+                    onBegan: { beginPhysicalPress(at: $0) },
+                    onMoved: movePhysicalPress,
+                    onEnded: { translation, eventTime in
+                        endPhysicalPress(translation, at: eventTime)
+                    },
+                    onCancelled: cancelPhysicalPress
+                )
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .accessibilityHidden(true)
+            }
+        #else
+            .gesture(recordGesture)
+        #endif
         .opacity(isEnabled ? 1 : 0.45)
         .allowsHitTesting(isEnabled && !isFinalizing)
-        .animation(.spring(response: 0.24, dampingFraction: 0.78), value: isRecording)
+        .animation(
+            .spring(response: 0.24, dampingFraction: 0.78),
+            value: isRecording
+        )
         .animation(.easeOut(duration: 0.12), value: isPressing)
         .accessibilityLabel(accessibilityLabel)
-        .accessibilityHint("Во время записи проведите влево для отмены или вверх для фиксации")
+        .accessibilityHint(
+            "Во время записи проведите влево для отмены или вверх для фиксации"
+        )
         .onDisappear {
             longPressTask?.cancel()
             longPressTask = nil
@@ -1832,7 +2395,8 @@ private struct TelegramRecordButton: View {
 
     private var accessibilityLabel: String {
         if isLocked { return "Отправить записанное сообщение" }
-        return isRecording ? mode.recordingAccessibilityLabel : mode.idleAccessibilityLabel
+        return isRecording
+            ? mode.recordingAccessibilityLabel : mode.idleAccessibilityLabel
     }
 
     private var recordGesture: some Gesture {
@@ -1873,9 +2437,10 @@ private struct TelegramRecordButton: View {
         longPressTask?.cancel()
         longPressTask = nil
         let wasLongPress = didBeginLongPress
-        let elapsed = pressStartedAt.map {
-            eventTime.timeIntervalSince($0)
-        } ?? 0
+        let elapsed =
+            pressStartedAt.map {
+                eventTime.timeIntervalSince($0)
+            } ?? 0
         isPressing = false
         didBeginLongPress = false
         pressStartedAt = nil
@@ -1912,7 +2477,8 @@ private struct TelegramRecordButton: View {
         longPressTask = Task { @MainActor in
             do {
                 try await Task.sleep(
-                    nanoseconds: ComposerRecordingGesturePolicy.longPressDelayNanoseconds
+                    nanoseconds: ComposerRecordingGesturePolicy
+                        .longPressDelayNanoseconds
                 )
             } catch {
                 return
@@ -1925,102 +2491,116 @@ private struct TelegramRecordButton: View {
 }
 
 #if os(iOS)
-/// A raw UIKit touch surface keeps ownership of the physical finger while the
-/// SwiftUI composer swaps its idle controls for the recording preview. A
-/// SwiftUI DragGesture can be cancelled by that hierarchy update and used to
-/// report the cancellation as an early end on some iOS releases.
-@MainActor
-private struct ComposerRecordTouchSurface: UIViewRepresentable {
-    let onBegan: (Date) -> Void
-    let onMoved: (CGSize) -> Void
-    let onEnded: (CGSize, Date) -> Void
-    let onCancelled: () -> Void
+    /// A raw UIKit touch surface keeps ownership of the physical finger while the
+    /// SwiftUI composer swaps its idle controls for the recording preview. A
+    /// SwiftUI DragGesture can be cancelled by that hierarchy update and used to
+    /// report the cancellation as an early end on some iOS releases.
+    @MainActor
+    private struct ComposerRecordTouchSurface: UIViewRepresentable {
+        let onBegan: (Date) -> Void
+        let onMoved: (CGSize) -> Void
+        let onEnded: (CGSize, Date) -> Void
+        let onCancelled: () -> Void
 
-    func makeUIView(context: Context) -> TouchView {
-        let view = TouchView(frame: .zero)
-        update(view)
-        return view
+        func makeUIView(context: Context) -> TouchView {
+            let view = TouchView(frame: .zero)
+            update(view)
+            return view
+        }
+
+        func updateUIView(_ uiView: TouchView, context: Context) {
+            update(uiView)
+        }
+
+        private func update(_ view: TouchView) {
+            view.onBegan = onBegan
+            view.onMoved = onMoved
+            view.onEnded = onEnded
+            view.onCancelled = onCancelled
+        }
+
+        final class TouchView: UIView {
+            var onBegan: ((Date) -> Void)?
+            var onMoved: ((CGSize) -> Void)?
+            var onEnded: ((CGSize, Date) -> Void)?
+            var onCancelled: (() -> Void)?
+
+            private var activeTouch: UITouch?
+            private var origin = CGPoint.zero
+
+            override init(frame: CGRect) {
+                super.init(frame: frame)
+                backgroundColor = .clear
+                isOpaque = false
+                isExclusiveTouch = true
+                isMultipleTouchEnabled = false
+                isAccessibilityElement = false
+            }
+
+            required init?(coder: NSCoder) {
+                nil
+            }
+
+            override func touchesBegan(
+                _ touches: Set<UITouch>,
+                with event: UIEvent?
+            ) {
+                guard activeTouch == nil, let touch = touches.first else {
+                    return
+                }
+                activeTouch = touch
+                origin = touch.location(in: window)
+                onBegan?(eventDate(for: touch))
+            }
+
+            override func touchesMoved(
+                _ touches: Set<UITouch>,
+                with event: UIEvent?
+            ) {
+                guard let touch = trackedTouch(in: touches) else { return }
+                onMoved?(translation(for: touch))
+            }
+
+            override func touchesEnded(
+                _ touches: Set<UITouch>,
+                with event: UIEvent?
+            ) {
+                guard let touch = trackedTouch(in: touches) else { return }
+                let translation = translation(for: touch)
+                let date = eventDate(for: touch)
+                activeTouch = nil
+                onEnded?(translation, date)
+            }
+
+            override func touchesCancelled(
+                _ touches: Set<UITouch>,
+                with event: UIEvent?
+            ) {
+                guard trackedTouch(in: touches) != nil else { return }
+                activeTouch = nil
+                onCancelled?()
+            }
+
+            private func trackedTouch(in touches: Set<UITouch>) -> UITouch? {
+                guard let activeTouch else { return nil }
+                return touches.first(where: { $0 === activeTouch })
+            }
+
+            private func translation(for touch: UITouch) -> CGSize {
+                let location = touch.location(in: window)
+                return CGSize(
+                    width: location.x - origin.x,
+                    height: location.y - origin.y
+                )
+            }
+
+            private func eventDate(for touch: UITouch) -> Date {
+                Date().addingTimeInterval(
+                    touch.timestamp - ProcessInfo.processInfo.systemUptime
+                )
+            }
+        }
     }
-
-    func updateUIView(_ uiView: TouchView, context: Context) {
-        update(uiView)
-    }
-
-    private func update(_ view: TouchView) {
-        view.onBegan = onBegan
-        view.onMoved = onMoved
-        view.onEnded = onEnded
-        view.onCancelled = onCancelled
-    }
-
-    final class TouchView: UIView {
-        var onBegan: ((Date) -> Void)?
-        var onMoved: ((CGSize) -> Void)?
-        var onEnded: ((CGSize, Date) -> Void)?
-        var onCancelled: (() -> Void)?
-
-        private var activeTouch: UITouch?
-        private var origin = CGPoint.zero
-
-        override init(frame: CGRect) {
-            super.init(frame: frame)
-            backgroundColor = .clear
-            isOpaque = false
-            isExclusiveTouch = true
-            isMultipleTouchEnabled = false
-            isAccessibilityElement = false
-        }
-
-        required init?(coder: NSCoder) {
-            nil
-        }
-
-        override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
-            guard activeTouch == nil, let touch = touches.first else { return }
-            activeTouch = touch
-            origin = touch.location(in: window)
-            onBegan?(eventDate(for: touch))
-        }
-
-        override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
-            guard let touch = trackedTouch(in: touches) else { return }
-            onMoved?(translation(for: touch))
-        }
-
-        override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
-            guard let touch = trackedTouch(in: touches) else { return }
-            let translation = translation(for: touch)
-            let date = eventDate(for: touch)
-            activeTouch = nil
-            onEnded?(translation, date)
-        }
-
-        override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
-            guard trackedTouch(in: touches) != nil else { return }
-            activeTouch = nil
-            onCancelled?()
-        }
-
-        private func trackedTouch(in touches: Set<UITouch>) -> UITouch? {
-            guard let activeTouch else { return nil }
-            return touches.first(where: { $0 === activeTouch })
-        }
-
-        private func translation(for touch: UITouch) -> CGSize {
-            let location = touch.location(in: window)
-            return CGSize(
-                width: location.x - origin.x,
-                height: location.y - origin.y
-            )
-        }
-
-        private func eventDate(for touch: UITouch) -> Date {
-            Date().addingTimeInterval(
-                touch.timestamp - ProcessInfo.processInfo.systemUptime
-            )
-        }
-    }
-}
 #endif
 
 private struct ReplyThreadSelection: Equatable {
@@ -2070,7 +2650,9 @@ private struct MessageDestructiveAction: Identifiable {
     let messages: [ChatMessage]
 
     var id: String {
-        let messageIDs = messages.map(\.id).sorted().joined(separator: "-")
+        let messageIDs = messages.map(\.clientID).sorted().joined(
+            separator: "-"
+        )
         return "\(kind == .localDelete ? "local" : "retract")-\(messageIDs)"
     }
 
@@ -2078,9 +2660,13 @@ private struct MessageDestructiveAction: Identifiable {
         let plural = messages.count > 1
         switch kind {
         case .localDelete:
-            return plural ? "Удалить выбранные сообщения у себя?" : "Удалить сообщение у себя?"
+            return plural
+                ? "Удалить выбранные сообщения у себя?"
+                : "Удалить сообщение у себя?"
         case .retract:
-            return plural ? "Удалить выбранные сообщения у всех?" : "Удалить сообщение у всех?"
+            return plural
+                ? "Удалить выбранные сообщения у всех?"
+                : "Удалить сообщение у всех?"
         }
     }
 
@@ -2091,7 +2677,8 @@ private struct MessageDestructiveAction: Identifiable {
                 ? "\(messageCountText) исчезнут только из истории Luma на этом устройстве."
                 : "Сообщение исчезнет только из истории Luma на этом устройстве."
         case .retract:
-            return "Luma отправит XMPP-запрос retract для \(messageCountText). Сервер и другие клиенты могут не удалить уже полученные копии."
+            return
+                "Luma отправит XMPP-запрос retract для \(messageCountText). Сервер и другие клиенты могут не удалить уже полученные копии."
         }
     }
 
@@ -2124,7 +2711,12 @@ private struct PickedPhoto: Transferable {
         FileRepresentation(contentType: .image) { photo in
             SentTransferredFile(photo.url)
         } importing: { received in
-            PickedPhoto(url: try copyPickedMediaFile(received.file, fallbackExtension: "jpg"))
+            PickedPhoto(
+                url: try copyPickedMediaFile(
+                    received.file,
+                    fallbackExtension: "jpg"
+                )
+            )
         }
     }
 }
@@ -2136,24 +2728,35 @@ private struct PickedVideo: Transferable {
         FileRepresentation(contentType: .movie) { video in
             SentTransferredFile(video.url)
         } importing: { received in
-            PickedVideo(url: try copyPickedMediaFile(received.file, fallbackExtension: "mov"))
+            PickedVideo(
+                url: try copyPickedMediaFile(
+                    received.file,
+                    fallbackExtension: "mov"
+                )
+            )
         }
     }
 }
 
-private func copyPickedMediaFile(_ source: URL, fallbackExtension: String) throws -> URL {
+private func copyPickedMediaFile(_ source: URL, fallbackExtension: String)
+    throws -> URL
+{
     let fileManager = FileManager.default
     let rootDirectory = fileManager.temporaryDirectory
         .appendingPathComponent("LumaPhotoPicker", isDirectory: true)
-    let selectionDirectory = rootDirectory
+    let selectionDirectory =
+        rootDirectory
         .appendingPathComponent(UUID().uuidString, isDirectory: true)
     try fileManager.createDirectory(
         at: selectionDirectory,
         withIntermediateDirectories: true
     )
 
-    let values = try? source.resourceValues(forKeys: [.nameKey, .contentTypeKey])
-    let fileExtension = source.pathExtension.isEmpty
+    let values = try? source.resourceValues(forKeys: [
+        .nameKey, .contentTypeKey,
+    ])
+    let fileExtension =
+        source.pathExtension.isEmpty
         ? (values?.contentType?.preferredFilenameExtension ?? fallbackExtension)
         : source.pathExtension
     var filename = values?.name ?? source.lastPathComponent
@@ -2164,7 +2767,9 @@ private func copyPickedMediaFile(_ source: URL, fallbackExtension: String) throw
     }
     let forbidden = CharacterSet(charactersIn: "/\\:")
         .union(.controlCharacters)
-    filename = filename.components(separatedBy: forbidden).joined(separator: "_")
+    filename = filename.components(separatedBy: forbidden).joined(
+        separator: "_"
+    )
     let destination = selectionDirectory.appendingPathComponent(filename)
     let accessed = source.startAccessingSecurityScopedResource()
     defer {
@@ -2185,7 +2790,8 @@ private func copyPickedMediaFile(_ source: URL, fallbackExtension: String) throw
                     forKeys: [.fileSizeKey, .isRegularFileKey]
                 )
                 guard stagedValues.isRegularFile == true,
-                      fileManager.isReadableFile(atPath: destination.path) else {
+                    fileManager.isReadableFile(atPath: destination.path)
+                else {
                     throw MediaFileIOError.unreadableFile(filename)
                 }
                 guard (stagedValues.fileSize ?? 0) > 0 else {
@@ -2213,7 +2819,8 @@ private func writePickedImageData(_ data: Data) throws -> URL {
     }
     let contentType: UTType?
     if let imageSource = CGImageSourceCreateWithData(data as CFData, nil),
-       let typeIdentifier = CGImageSourceGetType(imageSource) {
+        let typeIdentifier = CGImageSourceGetType(imageSource)
+    {
         contentType = UTType(typeIdentifier as String)
     } else {
         contentType = nil
@@ -2221,7 +2828,8 @@ private func writePickedImageData(_ data: Data) throws -> URL {
     let fileExtension = contentType?.preferredFilenameExtension ?? "jpg"
     let rootDirectory = FileManager.default.temporaryDirectory
         .appendingPathComponent("LumaPhotoPicker", isDirectory: true)
-    let selectionDirectory = rootDirectory
+    let selectionDirectory =
+        rootDirectory
         .appendingPathComponent(UUID().uuidString, isDirectory: true)
     try FileManager.default.createDirectory(
         at: selectionDirectory,
@@ -2237,4 +2845,74 @@ private func writePickedImageData(_ data: Data) throws -> URL {
         try? FileManager.default.removeItem(at: selectionDirectory)
         throw error
     }
+}
+
+#Preview {
+    PreviewSupport.chatPreview()
+}
+
+/// Extracted chat navigation title: avatar, display name and the transient
+/// «печатает…» line. Kept as its own view so its layout can be previewed on
+/// its own without opening a full chat.
+private struct ChatNavigationTitle: View {
+    @ObservedObject var model: AppModel
+    let conversation: Conversation
+
+    private var liveConversation: Conversation {
+        model.conversations.first(where: { $0.jid == conversation.jid })
+            ?? conversation
+    }
+
+    var body: some View {
+        Button {
+        } label: {
+            titleContent
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var titleContent: some View {
+        HStack {
+            AvatarView(
+                conversation: liveConversation,
+                imageData: model.avatarData(for: conversation.jid),
+                size: 25
+            )
+            .padding(4)
+            VStack(spacing: 0) {
+                Text(liveConversation.displayName)
+                    .font(.headline)
+                    .lineLimit(1)
+                if let typingText = model.typingText(for: liveConversation) {
+                    Text(typingText)
+                        .font(.caption2.weight(.medium))
+                        .foregroundStyle(.tint)
+                        .lineLimit(1)
+                        .transition(.opacity)
+                }
+            }
+            .padding(.top, 5)
+            .padding(.bottom, 5)
+            .padding(.trailing, 15)
+            .animation(
+                .easeInOut(duration: 0.16),
+                value: model.typingText(for: liveConversation)
+            )
+            .accessibilityElement(children: .combine)
+        }
+        #if os(iOS)
+            .glassEffect()
+        #endif
+    }
+}
+
+#Preview("Заголовок чата") {
+    ChatNavigationTitle(
+        model: PreviewSupport.model,
+        conversation: PreviewSupport.conversation(
+            displayName: "Алиса",
+            isOnline: true
+        )
+    )
+    .padding()
 }

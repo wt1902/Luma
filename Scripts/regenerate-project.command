@@ -10,4 +10,7 @@ if ! command -v xcodegen >/dev/null; then
 fi
 
 xcodegen generate
+# XcodeGen issue #1549: link the vendored local package to its product
+# dependencies, otherwise the Xcode GUI reports "Missing package product".
+python3 Scripts/patch-xcodeproj.py
 open Luma.xcodeproj

@@ -226,3 +226,9 @@ private struct WatchChatView: View {
         return String(format: "%d:%02d", seconds / 60, seconds % 60)
     }
 }
+
+#Preview {
+    MainActor.assumeIsolated {
+        WatchChatListView(model: WatchSessionModel())
+    }
+}

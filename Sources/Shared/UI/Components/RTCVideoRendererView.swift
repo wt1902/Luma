@@ -97,3 +97,9 @@ struct RTCVideoRendererView: NSViewRepresentable {
     }
 }
 #endif
+
+#Preview {
+    RTCVideoRendererView(track: nil)
+        .frame(width: 280, height: 320)
+        .background(Color.black)
+}

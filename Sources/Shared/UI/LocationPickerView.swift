@@ -146,3 +146,7 @@ struct LocationPickerView: View {
         dismiss()
     }
 }
+
+#Preview {
+    LocationPickerView { _ in }
+}

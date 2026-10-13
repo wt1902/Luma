@@ -56,8 +56,14 @@ struct LocationMessagePreview: View {
     }
 
     private func openInMaps() {
-        let item = MKMapItem(placemark: MKPlacemark(coordinate: coordinate))
+        let item = MKMapItem(location: CLLocation(latitude: coordinate.latitude, longitude: coordinate.longitude), address: nil)
         item.name = "Геопозиция из Luma"
         item.openInMaps()
     }
+}
+
+#Preview {
+    LocationMessagePreview(
+        location: GeoLocation(latitude: 55.7558, longitude: 37.6173)!
+    )
 }

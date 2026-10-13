@@ -50,7 +50,7 @@ struct VideoNotePreview: View {
             VStack {
                 Spacer()
                 HStack {
-                    Spacer()
+//                    Spacer()
                     Text(durationText)
                         .font(.caption2.monospacedDigit().weight(.semibold))
                         .foregroundStyle(.white)
@@ -82,7 +82,7 @@ struct VideoNotePreview: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .lumaExclusiveMediaPlayback)) { notification in
             guard let activeID = notification.object as? String,
-                  activeID != message.id else { return }
+                  activeID != message.clientID else { return }
             player?.pause()
             isPlaying = false
         }
@@ -146,10 +146,19 @@ struct VideoNotePreview: View {
             model.audioPlayback.stop()
             NotificationCenter.default.post(
                 name: .lumaExclusiveMediaPlayback,
-                object: message.id
+                object: message.clientID
             )
             player.play()
         }
         isPlaying.toggle()
     }
+}
+
+#Preview {
+    VideoNotePreview(
+        model: PreviewSupport.model,
+        message: PreviewSupport.videoNoteMessage(),
+        onFallbackTap: {}
+    )
+    .padding()
 }

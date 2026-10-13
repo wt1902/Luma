@@ -1,25 +1,49 @@
 import Foundation
+import SwiftData
 
-struct ChatMessage: Codable, Identifiable, Hashable, Sendable {
-    enum Direction: String, Codable, Sendable {
+@Model
+final class ChatMessage {
+    enum Direction: String, Codable {
         case incoming
         case outgoing
     }
 
-    enum Delivery: String, Codable, Sendable {
+    enum Delivery: String, Codable {
         case sending
         case sent
         case delivered
         case failed
+        case read
+
+        /// Monotonic promotion used when the same outgoing message is replayed
+        /// from MAM/MUC-MAM or Carbons: a copy that was already delivered or
+        /// read locally must never be downgraded by an archive replay carrying
+        /// `.sent`. `.failed` is sticky in both directions — an archive
+        /// replay must not silently "fix" a failed send; the user resends it
+        /// explicitly.
+        func merged(with other: Delivery) -> Delivery {
+            guard self != .failed, other != .failed else { return .failed }
+            return other.rank > self.rank ? other : self
+        }
+
+        private var rank: Int {
+            switch self {
+            case .sending: return 0
+            case .sent: return 1
+            case .delivered: return 2
+            case .read: return 3
+            case .failed: return -1
+            }
+        }
     }
 
-    enum Security: String, Codable, Sendable {
+    enum Security: String, Codable {
         case omemo
         case plaintext
         case decryptionFailed
     }
 
-    enum Kind: String, Codable, Sendable {
+    enum Kind: String, Codable {
         case text
         case attachment
         case photo
@@ -40,7 +64,7 @@ struct ChatMessage: Codable, Identifiable, Hashable, Sendable {
         }
     }
 
-    let id: String
+    @Attribute(.unique) var clientID: String
     var conversationID: String
     var senderJID: String
     var body: String
@@ -61,11 +85,14 @@ struct ChatMessage: Codable, Identifiable, Hashable, Sendable {
     var replyPreview: String?
     var forwardedFrom: String?
     var retractedAt: Date?
+    var originID: String?
     var stanzaID: String?
     var senderDisplayName: String?
     var isGroupMessage: Bool
     var callHistory: CallHistoryMetadata?
     var reactions: [MessageReaction]
+
+    var conversation: Conversation?
 
     init(
         id: String = UUID().uuidString,
@@ -89,13 +116,14 @@ struct ChatMessage: Codable, Identifiable, Hashable, Sendable {
         replyPreview: String? = nil,
         forwardedFrom: String? = nil,
         retractedAt: Date? = nil,
+        originID: String? = nil,
         stanzaID: String? = nil,
         senderDisplayName: String? = nil,
         isGroupMessage: Bool = false,
         callHistory: CallHistoryMetadata? = nil,
         reactions: [MessageReaction] = []
     ) {
-        self.id = id
+        self.clientID = id
         self.conversationID = conversationID.lowercased()
         self.senderJID = Self.normalizedSenderJID(senderJID)
         self.body = body
@@ -116,6 +144,7 @@ struct ChatMessage: Codable, Identifiable, Hashable, Sendable {
         self.replyPreview = replyPreview
         self.forwardedFrom = forwardedFrom
         self.retractedAt = retractedAt
+        self.originID = originID ?? (direction == .outgoing ? id : nil)
         self.stanzaID = stanzaID
         self.senderDisplayName = senderDisplayName
         self.isGroupMessage = isGroupMessage
@@ -123,71 +152,12 @@ struct ChatMessage: Codable, Identifiable, Hashable, Sendable {
         self.reactions = reactions
     }
 
-    private enum CodingKeys: String, CodingKey {
-        case id
-        case conversationID
-        case senderJID
-        case body
-        case timestamp
-        case direction
-        case delivery
-        case security
-        case kind
-        case remoteAttachmentURL
-        case localFilename
-        case mimeType
-        case duration
-        case byteCount
-        case encryptionFingerprint
-        case editedAt
-        case replyToID
-        case replyToJID
-        case replyPreview
-        case forwardedFrom
-        case retractedAt
-        case stanzaID
-        case senderDisplayName
-        case isGroupMessage
-        case callHistory
-        case reactions
-    }
-
-    init(from decoder: Decoder) throws {
-        let values = try decoder.container(keyedBy: CodingKeys.self)
-        id = try values.decode(String.self, forKey: .id)
-        conversationID = try values.decode(String.self, forKey: .conversationID).lowercased()
-        senderJID = Self.normalizedSenderJID(try values.decode(String.self, forKey: .senderJID))
-        body = try values.decode(String.self, forKey: .body)
-        timestamp = try values.decode(Date.self, forKey: .timestamp)
-        direction = try values.decode(Direction.self, forKey: .direction)
-        delivery = try values.decode(Delivery.self, forKey: .delivery)
-        security = try values.decode(Security.self, forKey: .security)
-        kind = try values.decode(Kind.self, forKey: .kind)
-        remoteAttachmentURL = try values.decodeIfPresent(String.self, forKey: .remoteAttachmentURL)
-        localFilename = try values.decodeIfPresent(String.self, forKey: .localFilename)
-        mimeType = try values.decodeIfPresent(String.self, forKey: .mimeType)
-        duration = try values.decodeIfPresent(TimeInterval.self, forKey: .duration)
-        byteCount = try values.decodeIfPresent(Int.self, forKey: .byteCount)
-        encryptionFingerprint = try values.decodeIfPresent(String.self, forKey: .encryptionFingerprint)
-        editedAt = try values.decodeIfPresent(Date.self, forKey: .editedAt)
-        replyToID = try values.decodeIfPresent(String.self, forKey: .replyToID)
-        replyToJID = try values.decodeIfPresent(String.self, forKey: .replyToJID).map(Self.normalizedSenderJID)
-        replyPreview = try values.decodeIfPresent(String.self, forKey: .replyPreview)
-        forwardedFrom = try values.decodeIfPresent(String.self, forKey: .forwardedFrom)
-        retractedAt = try values.decodeIfPresent(Date.self, forKey: .retractedAt)
-        stanzaID = try values.decodeIfPresent(String.self, forKey: .stanzaID)
-        senderDisplayName = try values.decodeIfPresent(String.self, forKey: .senderDisplayName)
-        isGroupMessage = try values.decodeIfPresent(Bool.self, forKey: .isGroupMessage) ?? false
-        callHistory = try values.decodeIfPresent(CallHistoryMetadata.self, forKey: .callHistory)
-        reactions = try values.decodeIfPresent([MessageReaction].self, forKey: .reactions) ?? []
-    }
-
     var canBeEdited: Bool {
         !isRetracted
             && !isGroupMessage
             && direction == .outgoing
             && kind == .text
-            && (delivery == .sent || delivery == .delivered)
+            && (delivery == .sent || delivery == .delivered || delivery == .read)
     }
 
     var isRetracted: Bool {
@@ -209,17 +179,18 @@ struct ChatMessage: Codable, Identifiable, Hashable, Sendable {
             && !isGroupMessage
             && !isRetracted
             && kind != .system
-            && (delivery == .sent || delivery == .delivered)
+            && (delivery == .sent || delivery == .delivered || delivery == .read)
     }
 
     var replyIdentifier: String? {
-        isGroupMessage ? stanzaID : id
+        isGroupMessage ? stanzaID : clientID
     }
 
     var quotePreview: String {
         if isRetracted { return "Сообщение удалено" }
         let value = kind == .text ? body : previewText
-        let normalized = value
+        let normalized =
+            value
             .replacingOccurrences(of: "\n", with: " ")
             .trimmingCharacters(in: .whitespacesAndNewlines)
         guard normalized.count > 140 else { return normalized }
@@ -315,5 +286,16 @@ struct ChatMessage: Codable, Identifiable, Hashable, Sendable {
         guard let slash = value.firstIndex(of: "/") else { return value.lowercased() }
         let bare = value[..<slash].lowercased()
         return bare + String(value[slash...])
+    }
+
+    var hasText: Bool {
+        // 1. Удалённые сообщения не копируем
+        guard !isRetracted else { return false }
+
+        // 2. Исключаем системные уведомления
+        guard kind != .system else { return false }
+
+        // 3. Текст считается существующим, если body не пустая строка (с обрезкой пробелов)
+        return !body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 }

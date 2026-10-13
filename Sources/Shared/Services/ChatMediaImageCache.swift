@@ -24,7 +24,7 @@ enum ChatMediaImageCache {
         for message: ChatMessage,
         data: Data
     ) -> ChatMediaPlatformImage? {
-        let cacheKey = "\(message.conversationID)\u{1F}\(message.id)" as NSString
+        let cacheKey = "\(message.conversationID)\u{1F}\(message.clientID)" as NSString
         if let cached = cache.object(forKey: cacheKey) {
             return cached
         }

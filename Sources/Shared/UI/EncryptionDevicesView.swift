@@ -16,19 +16,21 @@ struct EncryptionDevicesView: View {
                     )
                     .foregroundStyle(statusColor)
                 } footer: {
-                    Text("Luma использует trust-on-first-use. Сверьте отпечаток по другому каналу и отметьте устройство как проверенное.")
+                    Text(
+                        "Luma использует trust-on-first-use. Сверьте отпечаток по другому каналу и отметьте устройство как проверенное."
+                    )
                 }
 
-                if devices.isEmpty {
-                    Section("Устройства контакта") {
+                Section("Устройства контакта") {
+                    if devices.isEmpty {
                         ContentUnavailableView(
                             "Ключи ещё не получены",
                             systemImage: "key.horizontal",
-                            description: Text("Они появятся после первой попытки отправки или получения OMEMO-сообщения.")
+                            description: Text(
+                                "Они появятся после первой попытки отправки или получения OMEMO-сообщения."
+                            )
                         )
-                    }
-                } else {
-                    Section("Устройства контакта") {
+                    } else {
                         ForEach(devices) { device in
                             DeviceRow(device: device) {
                                 model.setDeviceVerified(
@@ -58,9 +60,9 @@ struct EncryptionDevicesView: View {
             }
             .onAppear(perform: reload)
         }
-#if os(macOS)
-        .frame(minWidth: 480, minHeight: 500)
-#endif
+        #if os(macOS)
+            .frame(minWidth: 480, minHeight: 500)
+        #endif
     }
 
     private func reload() {
@@ -68,7 +70,9 @@ struct EncryptionDevicesView: View {
     }
 
     private var statusTitle: String {
-        guard model.encryptionEnabled(for: conversation.jid) else { return "OMEMO выключено для этого чата" }
+        guard model.encryptionEnabled(for: conversation.jid) else {
+            return "OMEMO выключено для этого чата"
+        }
         return model.isOMEMOReady ? "OMEMO активно" : "OMEMO подготавливается"
     }
 
@@ -89,8 +93,20 @@ private struct DeviceRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
-                Label("Устройство \(device.deviceID)", systemImage: device.isActive ? "iphone" : "iphone.slash")
-                    .font(.headline)
+                Label(
+                    "Устройство \(device.deviceID)",
+                    systemImage: device.isActive ? "iphone" : "iphone.slash"
+                )
+                .font(.headline)
+                Text(device.protocolName)
+                    .font(.caption2.weight(.medium))
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .foregroundStyle(device.isOMEMO2 ? Color.indigo : Color.secondary)
+                    .background(
+                        (device.isOMEMO2 ? Color.indigo : Color.secondary).opacity(0.14),
+                        in: Capsule()
+                    )
                 Spacer()
                 Button(action: toggleVerification) {
                     Label(trustTitle, systemImage: trustIcon)
@@ -134,8 +150,8 @@ private struct DeviceRow: View {
     }
 }
 
-private extension String {
-    func chunked(every size: Int) -> [String] {
+extension String {
+    fileprivate func chunked(every size: Int) -> [String] {
         guard size > 0 else { return [self] }
         var result: [String] = []
         var cursor = startIndex
@@ -146,4 +162,11 @@ private extension String {
         }
         return result
     }
+}
+
+#Preview {
+    EncryptionDevicesView(
+        model: PreviewSupport.model,
+        conversation: PreviewSupport.conversation(displayName: "Алиса")
+    )
 }

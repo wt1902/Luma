@@ -53,6 +53,16 @@ struct AudioMessagePlayer: View {
                         .font(.caption2.monospacedDigit())
                         .foregroundStyle(secondaryText)
                     Spacer()
+                    Button(action: saveToFiles) {
+                        Image(systemName: "square.and.arrow.down")
+                            .font(.caption.weight(.bold))
+                            .foregroundStyle(accent)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 3)
+                            .background(accent.opacity(0.14), in: Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Сохранить в Файлы")
                     Button(action: playback.cycleVoiceRate) {
                         Text(rateText)
                             .font(.caption2.monospacedDigit().weight(.bold))
@@ -95,6 +105,13 @@ struct AudioMessagePlayer: View {
                             countStyle: .file
                         ))
                     }
+                    Spacer()
+                    Button(action: saveToFiles) {
+                        Image(systemName: "square.and.arrow.down")
+                            .foregroundStyle(accent)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Сохранить в Файлы")
                 }
                 .font(.caption2.monospacedDigit())
                 .foregroundStyle(secondaryText)
@@ -129,7 +146,7 @@ struct AudioMessagePlayer: View {
     }
 
     private var isCurrent: Bool {
-        playback.currentMessageID == message.id
+        playback.currentMessageID == message.clientID
     }
 
     private var isPlaying: Bool {
@@ -185,6 +202,10 @@ struct AudioMessagePlayer: View {
         message.direction == .outgoing ? .white.opacity(0.78) : .secondary
     }
 
+    private func saveToFiles() {
+        Task { await MediaDownloadService.save(message, model: model) }
+    }
+
     private func togglePlayback() {
         guard let localURL else {
             Task {
@@ -194,7 +215,7 @@ struct AudioMessagePlayer: View {
                     return
                 }
                 playback.toggle(
-                    messageID: message.id,
+                    messageID: message.clientID,
                     url: downloadedURL,
                     durationHint: message.duration,
                     isVoice: message.kind == .voice
@@ -203,7 +224,7 @@ struct AudioMessagePlayer: View {
             return
         }
         playback.toggle(
-            messageID: message.id,
+            messageID: message.clientID,
             url: localURL,
             durationHint: message.duration,
             isVoice: message.kind == .voice
@@ -213,7 +234,7 @@ struct AudioMessagePlayer: View {
     private func seek(_ fraction: Double) {
         guard let localURL else { return }
         playback.seek(
-            messageID: message.id,
+            messageID: message.clientID,
             url: localURL,
             durationHint: message.duration,
             isVoice: message.kind == .voice,
@@ -304,4 +325,29 @@ enum MediaTimeFormatter {
         }
         return String(format: "%d:%02d", seconds / 60, seconds % 60)
     }
+}
+
+#Preview("Голосовое") {
+    AudioMessagePlayer(
+        model: PreviewSupport.model,
+        message: PreviewSupport.voiceMessage(),
+        onFallbackTap: {}
+    )
+    .padding()
+}
+
+#Preview("Аудиофайл") {
+    AudioMessagePlayer(
+        model: PreviewSupport.model,
+        message: PreviewSupport.message(
+            body: "",
+            kind: .audio,
+            localFilename: "track.mp3",
+            mimeType: "audio/mpeg",
+            duration: 214,
+            byteCount: 8_550_000
+        ),
+        onFallbackTap: {}
+    )
+    .padding()
 }

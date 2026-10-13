@@ -71,12 +71,13 @@ struct ReplyThreadOverlay: View {
 
                 Button(action: onDismiss) {
                     Image(systemName: "xmark")
-                        .font(.system(size: 13, weight: .bold))
+                        .font(.system(size: 17, weight: .semibold))
                         .foregroundStyle(.white.opacity(0.82))
-                        .frame(width: 32, height: 32)
-                        .background(.white.opacity(0.12), in: Circle())
+                        .padding(7)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.glass)
+                .buttonBorderShape(.circle)
+                .background(.clear)
                 .keyboardShortcut(.cancelAction)
                 .accessibilityLabel("Закрыть ветку ответов")
                 .padding(.top, max(12, geometry.safeAreaInsets.top + 6))
@@ -112,10 +113,10 @@ struct ReplyThreadOverlay: View {
                     model: model,
                     message: reply,
                     maximumBubbleWidth: maximumBubbleWidth,
-                    isSelected: reply.id == selectedReplyID,
-                    showsDeliveryStatus: reply.id == selectedReplyID
+                    isSelected: reply.clientID == selectedReplyID,
+                    showsDeliveryStatus: reply.clientID == selectedReplyID
                 )
-                .id(reply.id)
+                .id(reply.clientID)
             }
         }
         .padding(.leading, showsBracket && bracketOnLeadingEdge ? 43 : 0)
@@ -338,10 +339,35 @@ private struct ReplyThreadMessageRow: View {
         case .sent: state = "Отправлено"
         case .delivered: state = "Доставлено"
         case .failed: state = "Не отправлено"
+        case .read: state = "Прочитано"
         }
         let value = Calendar.current.isDateInToday(message.timestamp)
             ? message.timestamp.formatted(date: .omitted, time: .shortened)
             : message.timestamp.formatted(date: .numeric, time: .omitted)
         return "\(state) \(value)"
     }
+}
+
+#Preview {
+    ReplyThreadOverlay(
+        model: PreviewSupport.model,
+        rootMessage: PreviewSupport.message(
+            body: "Кто пойдёт на конференцию?",
+            timestamp: Date().addingTimeInterval(-3_600)
+        ),
+        replies: [
+            PreviewSupport.message(
+                id: "preview-reply-1",
+                body: "Я пойду!",
+                timestamp: Date().addingTimeInterval(-2_400)
+            ),
+            PreviewSupport.message(
+                id: "preview-reply-2",
+                body: "Я тоже, но опоздаю на полчаса",
+                timestamp: Date().addingTimeInterval(-1_800)
+            ),
+        ],
+        selectedReplyID: "preview-reply-1",
+        onDismiss: {}
+    )
 }

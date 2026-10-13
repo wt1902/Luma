@@ -8,7 +8,7 @@ struct CallView: View {
     let call: CallSnapshot
 
     private var conversation: Conversation {
-        model.conversations.first(where: { $0.id == call.peerJID.lowercased() })
+        model.conversations.first(where: { $0.jid == call.peerJID.lowercased() })
             ?? Conversation(jid: call.peerJID, displayName: model.displayName(for: call.peerJID))
     }
 
@@ -240,4 +240,19 @@ private struct CallControlButton: View {
         .foregroundStyle(.white)
         .accessibilityLabel(title)
     }
+}
+
+#Preview("Входящий видеозвонок") {
+    CallView(model: PreviewSupport.model, call: PreviewSupport.callSnapshot())
+}
+
+#Preview("Аудиозвонок") {
+    CallView(
+        model: PreviewSupport.model,
+        call: PreviewSupport.callSnapshot(
+            media: [.audio],
+            phase: .connected,
+            isSpeakerEnabled: true
+        )
+    )
 }

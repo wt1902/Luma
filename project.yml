@@ -16,9 +16,10 @@ settings:
   base:
     SWIFT_VERSION: 5.9
     CURRENT_PROJECT_VERSION: 31
-    MARKETING_VERSION: 0.10.6
+    MARKETING_VERSION: 20261013.0
     ENABLE_USER_SCRIPT_SANDBOXING: true
     CLANG_ANALYZER_LOCALIZABILITY_NONLOCALIZED: true
+    COMPANION_BUNDLE_IDENTIFIER: app.luma.chat
   configs:
     Debug:
       SWIFT_ACTIVE_COMPILATION_CONDITIONS: DEBUG
@@ -30,28 +31,35 @@ packages:
     url: https://github.com/tigase/Martin.git
     exactVersion: 3.2.4
   MartinOMEMO:
-    url: https://github.com/tigase/MartinOMEMO.git
-    exactVersion: 2.2.3
+    path: ThirdParty/MartinOMEMO
   WebRTC:
     url: https://github.com/stasel/WebRTC.git
     exactVersion: 150.0.0
+  OpenSSL:
+    url: https://github.com/krzyzanowskim/OpenSSL.git
+    from: 3.4.0
+#  SwiftChat:
+#    url: https://github.com/unionst/swift-chat.git
+#    from: 1.0.0
 
 targets:
   Luma:
     type: application
     platform: iOS
-    deploymentTarget: "17.0"
+    deploymentTarget: "26.0"
     sources:
       - path: Sources/App
       - path: Sources/Shared
-    resources:
       - path: Resources/Shared.xcassets
+        buildPhase: resources
       - path: Resources/AppAssets.xcassets
+        buildPhase: resources
     dependencies:
       - package: Martin
       - package: MartinOMEMO
       - package: WebRTC
-      - target: LumaWatch
+      - package: OpenSSL
+    #     - package: SwiftChat
     info:
       path: Config/Luma-Info.plist
       properties:
@@ -60,6 +68,15 @@ targets:
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         UILaunchScreen: {}
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
         UIBackgroundModes:
           - audio
           - fetch
@@ -70,15 +87,21 @@ targets:
         NSMicrophoneUsageDescription: Luma использует микрофон для голосовых сообщений и звонков.
         NSLocalNetworkUsageDescription: Luma использует локальную сеть для прямого соединения аудио- и видеозвонков.
         NSLocationWhenInUseUsageDescription: Luma использует геопозицию только когда вы выбираете отправку точки в чате.
+        NSFaceIDUsageDescription: Luma использует Face ID для разблокировки приложения.
+        NSPhotoLibraryAddUsageDescription: Luma сохраняет фотографии и видео в вашу медиатеку.
     entitlements:
       path: Config/Luma.entitlements
       properties: {}
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: app.luma.chat
+        PRODUCT_BUNDLE_IDENTIFIER: $(COMPANION_BUNDLE_IDENTIFIER)
         PRODUCT_NAME: Luma
         TARGETED_DEVICE_FAMILY: "1,2"
+        # The remaining diagnostics come from APIs that Martin still requires
+        # for XMPP/TLS compatibility (QueueDispatcher and SecureTransport).
+        SWIFT_SUPPRESS_WARNINGS: true
         SUPPORTS_MACCATALYST: false
+        DEVELOPMENT_TEAM: K3AS449A74
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS: true
@@ -87,17 +110,19 @@ targets:
   LumaMac:
     type: application
     platform: macOS
-    deploymentTarget: "14.0"
+    deploymentTarget: "26.0"
     sources:
       - path: Sources/App
       - path: Sources/Shared
-    resources:
       - path: Resources/Shared.xcassets
+        buildPhase: resources
       - path: Resources/AppAssets.xcassets
+        buildPhase: resources
     dependencies:
       - package: Martin
       - package: MartinOMEMO
       - package: WebRTC
+      - package: OpenSSL
     info:
       path: Config/LumaMac-Info.plist
       properties:
@@ -110,6 +135,7 @@ targets:
         NSCameraUsageDescription: Luma использует камеру для фотографий, видеосообщений и видеозвонков.
         NSMicrophoneUsageDescription: Luma использует микрофон для голосовых сообщений и звонков.
         NSLocationUsageDescription: Luma использует геопозицию только когда вы выбираете отправку точки в чате.
+        NSFaceIDUsageDescription: Luma использует Touch ID для разблокировки приложения.
     entitlements:
       path: Config/LumaMac.entitlements
       properties:
@@ -117,6 +143,7 @@ targets:
         com.apple.security.network.client: true
         com.apple.security.network.server: true
         com.apple.security.files.user-selected.read-only: true
+        com.apple.security.files.user-selected.read-write: true
         com.apple.security.device.camera: true
         com.apple.security.device.audio-input: true
         com.apple.security.personal-information.location: true
@@ -124,6 +151,7 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: app.luma.chat.macos
         PRODUCT_NAME: Luma
+        DEVELOPMENT_TEAM: K3AS449A74
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS: true
@@ -136,12 +164,13 @@ targets:
     # try to produce Luma.app/Luma.
     type: application
     platform: watchOS
-    deploymentTarget: "10.0"
+    deploymentTarget: "26.0"
     sources:
       - path: Sources/Watch
-    resources:
       - path: Resources/Shared.xcassets
+        buildPhase: resources
       - path: Resources/AppAssets.xcassets
+        buildPhase: resources
     info:
       path: Config/LumaWatch-Info.plist
       properties:
@@ -152,7 +181,7 @@ targets:
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         NSMicrophoneUsageDescription: Luma использует микрофон Apple Watch для голосовых сообщений.
         WKApplication: true
-        WKCompanionAppBundleIdentifier: app.luma.chat
+        WKCompanionAppBundleIdentifier: $(COMPANION_BUNDLE_IDENTIFIER)
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: app.luma.chat.watchkitapp
@@ -161,6 +190,7 @@ targets:
         PRODUCT_NAME: LumaWatch
         GENERATE_INFOPLIST_FILE: NO
         TARGETED_DEVICE_FAMILY: "4"
+        DEVELOPMENT_TEAM: K3AS449A74
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS: true
@@ -169,7 +199,7 @@ targets:
   LumaTests:
     type: bundle.unit-test
     platform: iOS
-    deploymentTarget: "17.0"
+    deploymentTarget: "26.0"
     sources:
       - path: Tests
     dependencies:
@@ -177,6 +207,19 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: app.luma.chat.tests
+        GENERATE_INFOPLIST_FILE: true
+
+  LumaUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    deploymentTarget: "26.0"
+    sources:
+      - path: UITests
+    dependencies:
+      - target: Luma
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: app.luma.chat.uitests
         GENERATE_INFOPLIST_FILE: true
 
 schemes:
@@ -191,6 +234,7 @@ schemes:
       config: Debug
       targets:
         - LumaTests
+        - LumaUITests
     archive:
       config: Release
   LumaMac:

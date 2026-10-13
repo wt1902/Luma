@@ -90,3 +90,21 @@ struct AvatarView: View {
         )
     }
 }
+
+#Preview("Контакт") {
+    AvatarView(
+        conversation: PreviewSupport.conversation(displayName: "Алиса", isOnline: true)
+    )
+}
+
+#Preview("Группа") {
+    AvatarView(
+        conversation: PreviewSupport.conversation(
+            jid: "team@conference.example.org",
+            displayName: "Команда Luma",
+            kind: .group,
+            isGroupJoined: true,
+            occupantCount: 7
+        )
+    )
+}

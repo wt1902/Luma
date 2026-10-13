@@ -1,34 +1,42 @@
-name: iOS CI
-
+name: Build Unsigned iOS ipa
 on:
   push:
-    branches: [ main ]
+    branches:
+      - main
+      - develop
+      - issue-*
   pull_request:
-    branches: [ main ]
-
+    branches:
+      - main
+      - develop
 jobs:
-  build-and-test:
-    name: Build and Test SwiftUI App
-    runs-on: macos-26 # Uses Apple Silicon M1/M2 runners
-
+  build-ios:
+    name: Build Unsigned iOS IPA
+    runs-on: macos-26
     steps:
-      # Step 1: Check out the repository code
-      - name: Checkout Repository
+      - name: Checkout repository
         uses: actions/checkout@v4
-
-      # Step 2: Select the correct Xcode version
-      - name: Set Xcode Version
+      - name: Set up Xcode version
         run: sudo xcode-select -s /Applications/Xcode_26.6.app/Contents/Developer
-
-      # Step 3: Load dependencies if using Swift Package Manager
-      - name: Resolve Swift Packages
-        run: xcodebuild -resolvePackageDependencies -project Luma.xcodeproj -scheme Luma
-
-      # Step 4: Build and run tests using xcodebuild
-      - name: Build and Test
+      - name: Build Xcode Workspace
         run: |
-          xcodebuild test \
+          xcodebuild build \
             -project Luma.xcodeproj \
             -scheme Luma \
-            -destination 'platform=iOS Simulator,name=iPhone 17 Pro Max,OS=26.4.1' \
-            -quiet
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath build/DerivedData \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            PROVISIONING_PROFILE_SPECIFIER=""
+      - name: Package into IPA
+        run: |
+          mkdir -p build/Payload
+          mv build/DerivedData/Build/Products/Release-iphoneos/Luma.app build/Payload/
+          cd build && zip -r Luma.ipa Payload/
+      - name: Upload iOS Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Luma${{ github.run_id }}
+          path: build/Luma.ipa

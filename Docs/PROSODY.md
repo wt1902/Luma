@@ -105,18 +105,18 @@ participant читать member list. Для уже существующей к�
 Для `upload.example.org` нужен корректный HTTPS URL. Если компонент не является
 прямым поддоменом VirtualHost, добавьте его в `disco_items`. При reverse proxy
 задайте `http_host`/`http_external_url` согласно вашей топологии. Например, для
-`wthome.ru` за HTTPS reverse proxy:
+`example.com` за HTTPS reverse proxy:
 
 ```lua
-Component "upload.wthome.ru" "http_file_share"
+Component "upload.example.com" "http_file_share"
     http_file_share_size_limit = 1024 * 1024 * 1024
-    http_host = "upload.wthome.ru"
-    http_external_url = "https://upload.wthome.ru/"
+    http_host = "upload.example.com"
+    http_external_url = "https://upload.example.com/"
     trusted_proxies = { "127.0.0.1", "::1" }
     modules_disabled = { "s2s" }
 ```
 
-Reverse proxy должен передавать `Host: upload.wthome.ru` и
+Reverse proxy должен передавать `Host: upload.example.com` и
 `X-Forwarded-Proto: https`. Иначе Prosody может выдать клиенту `http://` URL или
 маршрут, возвращающий 404; Luma намеренно не понижает upload до HTTP.
 
@@ -138,7 +138,7 @@ Reverse proxy должен передавать `Host: upload.wthome.ru` и
 prosodyctl check config
 prosodyctl check certs
 prosodyctl shell module info http_file_share
-prosodyctl shell http list upload.wthome.ru
+prosodyctl shell http list upload.example.com
 ```
 
 Начиная с 0.3.0 Luma различает ошибки discovery, получения upload slot,

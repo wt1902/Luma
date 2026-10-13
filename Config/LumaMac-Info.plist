@@ -26,6 +26,8 @@
 	<string>public.app-category.social-networking</string>
 	<key>NSCameraUsageDescription</key>
 	<string>Luma использует камеру для фотографий, видеосообщений и видеозвонков.</string>
+	<key>NSFaceIDUsageDescription</key>
+	<string>Luma использует Touch ID для разблокировки приложения.</string>
 	<key>NSHighResolutionCapable</key>
 	<true/>
 	<key>NSLocationUsageDescription</key>

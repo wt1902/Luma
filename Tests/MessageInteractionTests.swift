@@ -3,7 +3,7 @@ import XCTest
 @testable import Luma
 
 final class MessageInteractionTests: XCTestCase {
-    func testReplyMetadataRoundTrips() throws {
+    func testReplyMetadataIsStored() {
         let message = ChatMessage(
             conversationID: "bob@example.org",
             senderJID: "alice@example.org",
@@ -16,12 +16,9 @@ final class MessageInteractionTests: XCTestCase {
             replyPreview: "Исходный текст"
         )
 
-        let data = try JSONEncoder().encode(message)
-        let decoded = try JSONDecoder().decode(ChatMessage.self, from: data)
-
-        XCTAssertEqual(decoded.replyToID, "original-id")
-        XCTAssertEqual(decoded.replyToJID, "bob@example.org")
-        XCTAssertEqual(decoded.replyPreview, "Исходный текст")
+        XCTAssertEqual(message.replyToID, "original-id")
+        XCTAssertEqual(message.replyToJID, "bob@example.org")
+        XCTAssertEqual(message.replyPreview, "Исходный текст")
     }
 
     func testRetractedMessageCannotBeEditedRepliedOrForwarded() {
@@ -40,35 +37,6 @@ final class MessageInteractionTests: XCTestCase {
         XCTAssertFalse(message.canBeForwarded)
         XCTAssertFalse(message.canBeRetracted)
         XCTAssertEqual(message.previewText, "🚫 Сообщение удалено")
-    }
-
-    func testLegacyMessageWithoutInteractionFieldsStillDecodes() throws {
-        let original = ChatMessage(
-            conversationID: "bob@example.org",
-            senderJID: "alice@example.org",
-            body: "Старый архив",
-            direction: .incoming,
-            delivery: .delivered,
-            security: .omemo
-        )
-        let encoded = try JSONEncoder().encode(original)
-        var object = try XCTUnwrap(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
-        for key in [
-            "replyToID", "replyToJID", "replyPreview", "forwardedFrom", "retractedAt",
-            "stanzaID", "senderDisplayName", "isGroupMessage", "callHistory"
-        ] {
-            object.removeValue(forKey: key)
-        }
-
-        let decoded = try JSONDecoder().decode(
-            ChatMessage.self,
-            from: JSONSerialization.data(withJSONObject: object)
-        )
-
-        XCTAssertNil(decoded.replyToID)
-        XCTAssertNil(decoded.retractedAt)
-        XCTAssertEqual(decoded.body, "Старый архив")
-        XCTAssertFalse(decoded.isGroupMessage)
     }
 
     func testGroupReplyRequiresRoomAssignedStanzaID() {
@@ -92,7 +60,7 @@ final class MessageInteractionTests: XCTestCase {
         XCTAssertFalse(message.canBeRetracted)
     }
 
-    func testCompletedVideoCallHistoryRoundTripsWithDuration() throws {
+    func testCompletedVideoCallHistoryShowsMetadata() {
         let metadata = CallHistoryMetadata(isVideo: true, outcome: .completed)
         let message = ChatMessage(
             id: "call-alice-123",
@@ -107,14 +75,11 @@ final class MessageInteractionTests: XCTestCase {
             callHistory: metadata
         )
 
-        let data = try JSONEncoder().encode(message)
-        let decoded = try JSONDecoder().decode(ChatMessage.self, from: data)
-
-        XCTAssertEqual(decoded.callHistory, metadata)
-        XCTAssertEqual(decoded.callTitle, "Исходящий видеозвонок")
-        XCTAssertEqual(decoded.callSubtitle, "Длительность 1:05")
-        XCTAssertEqual(decoded.previewText, "🎥 Исходящий видеозвонок")
-        XCTAssertFalse(decoded.canBeRepliedTo)
-        XCTAssertFalse(decoded.canBeForwarded)
+        XCTAssertEqual(message.callHistory, metadata)
+        XCTAssertEqual(message.callTitle, "Исходящий видеозвонок")
+        XCTAssertEqual(message.callSubtitle, "Длительность 1:05")
+        XCTAssertEqual(message.previewText, "🎥 Исходящий видеозвонок")
+        XCTAssertFalse(message.canBeRepliedTo)
+        XCTAssertFalse(message.canBeForwarded)
     }
 }

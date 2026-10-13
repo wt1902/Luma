@@ -1,0 +1,36 @@
+name: iOS CI
+on:
+  push:
+    branches:
+      - main
+      - develop
+      - issue-*
+  pull_request:
+    branches:
+      - main
+      - develop
+jobs:
+  build-and-test:
+    name: Build and Test SwiftUI App
+    runs-on: macos-26
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+      - name: Set Xcode Version
+        run: sudo xcode-select -s /Applications/Xcode_26.6.app/Contents/Developer
+      - name: Resolve Swift Packages
+        run: xcodebuild -resolvePackageDependencies -project Luma.xcodeproj -scheme Luma
+      - name: Build and Test
+        run: |
+          xcodebuild test \
+            -project Luma.xcodeproj \
+            -scheme Luma \
+            -destination 'platform=iOS Simulator,name=iPhone 17 Pro Max,OS=26.4.1' \
+            -only-testing:LumaTests \
+            -resultBundlePath TestResults.xcresult
+      - name: Upload Test Results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Luma-TestResults
+          path: TestResults.xcresult

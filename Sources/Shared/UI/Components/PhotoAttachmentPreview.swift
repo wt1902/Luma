@@ -124,10 +124,19 @@ struct PhotoAttachmentPreview: View {
     private func openViewer() {
         Task {
             await model.presentMediaViewer(message)
-            if model.mediaViewerItem?.id != message.id,
+            if model.mediaViewerItem?.id != message.clientID,
                message.remoteAttachmentURL == nil {
                 onFallbackTap()
             }
         }
     }
+}
+
+#Preview {
+    PhotoAttachmentPreview(
+        model: PreviewSupport.model,
+        message: PreviewSupport.photoMessage(),
+        onFallbackTap: {}
+    )
+    .padding()
 }

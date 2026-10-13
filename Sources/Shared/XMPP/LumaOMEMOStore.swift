@@ -86,21 +86,69 @@ final class LumaOMEMOStore: SignalStorage {
     }
 
     func devices(for jid: String) -> [OMEMODevice] {
-        identityAdapter.identities(forName: jid.lowercased()).map { identity in
+        let key = jid.lowercased()
+        let published: Set<Int32> = Set(repository.read { $0.omemo2DeviceIDs?[key] ?? [] })
+        return identityAdapter.identities(forName: key).map { identity in
             OMEMODevice(
                 jid: identity.address.name,
                 deviceID: identity.address.deviceId,
                 fingerprint: identity.fingerprint,
                 trust: Self.mapTrust(identity.status),
                 isActive: identity.status.isActive,
-                isOwn: identity.own
+                isOwn: identity.own,
+                isOMEMO2: published.contains(identity.address.deviceId)
             )
         }
         .sorted { lhs, rhs in lhs.deviceID < rhs.deviceID }
     }
 
+    /// Records the set of device IDs a JID currently publishes under
+    /// `urn:xmpp:omemo:2`. Drives the per-device protocol badge on the
+    /// encryption screen and persists so the label survives a relaunch.
+    func setOMEMO2DeviceIDs(_ deviceIDs: Set<Int32>, for jid: String) {
+        let key = jid.lowercased()
+        repository.mutate { state in
+            var all = state.omemo2DeviceIDs ?? [:]
+            if deviceIDs.isEmpty {
+                all.removeValue(forKey: key)
+            } else {
+                all[key] = deviceIDs.sorted()
+            }
+            state.omemo2DeviceIDs = all
+        }
+    }
+
     func hasSession(for address: SignalAddress) -> Bool {
         sessionAdapter.containsSessionRecord(forAddress: address)
+    }
+
+    var accountJID: String { repository.accountJID }
+
+    var localRegistrationID: UInt32 { identityAdapter.localRegistrationId() }
+
+    /// Removes a session record with our own current device. A poisoned
+    /// self-session (created by a buggy older build) makes encrypt-to-self
+    /// fail with "Bad MAC". Deleting it is safe, but the session is then
+    /// legitimately rebuilt from our own bundle and must never be purged
+    /// again: archived self-copies depend on its ratchet continuity.
+    func removeSessionWithOwnDevice() {
+        let registrationID = identityAdapter.localRegistrationId()
+        guard registrationID != 0 else { return }
+        let address = SignalAddress(
+            name: repository.accountJID,
+            deviceId: Int32(bitPattern: registrationID)
+        )
+        _ = sessionAdapter.deleteSessionRecord(forAddress: address)
+    }
+
+    /// One-time migration purge of the poisoned self-session, keyed per
+    /// account. Running it on every connect destroys the self-session ratchet
+    /// and turns every archived encrypt-to-self copy into "could not decrypt".
+    func removeSessionWithOwnDeviceOnce() {
+        let flagKey = "app.luma.chat.selfSessionPurged." + repository.accountJID
+        guard !UserDefaults.standard.bool(forKey: flagKey) else { return }
+        UserDefaults.standard.set(true, forKey: flagKey)
+        removeSessionWithOwnDevice()
     }
 
     func flushPendingPersistence() {
@@ -544,6 +592,9 @@ private struct StoredOMEMOState: Codable {
     var signedPreKeys: [String: Data]
     var sessions: [String: Data]
     var senderKeys: [String: Data]
+    // Lowercased JID -> device IDs currently published under urn:xmpp:omemo:2.
+    // Optional for backward compatibility with state written before OMEMO 2.
+    var omemo2DeviceIDs: [String: [Int32]]?
 
     static let empty = StoredOMEMOState(
         registrationID: 0,
@@ -552,7 +603,8 @@ private struct StoredOMEMOState: Codable {
         preKeys: [:],
         signedPreKeys: [:],
         sessions: [:],
-        senderKeys: [:]
+        senderKeys: [:],
+        omemo2DeviceIDs: nil
     )
 }
 

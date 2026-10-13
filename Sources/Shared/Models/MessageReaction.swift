@@ -80,7 +80,7 @@ enum MessageReactionPolicy {
 
 extension ChatMessage {
     var reactionIdentifier: String? {
-        isGroupMessage ? stanzaID : id
+        isGroupMessage ? stanzaID : clientID
     }
 
     var canBeReactedTo: Bool {

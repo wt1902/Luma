@@ -1,0 +1,37 @@
+name: Build Unsigned macOS App
+on:
+  push:
+    branches:
+      - main
+      - develop
+      - issue-*
+  pull_request:
+    branches:
+      - main
+      - develop
+jobs:
+  build-macos:
+    name: Build macOS ZIP
+    runs-on: macos-26
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Set up Xcode version
+        run: sudo xcode-select -s /Applications/Xcode_26.6.app/Contents/Developer
+      - name: Build macOS App
+        run: |
+          xcodebuild build \
+            -project Luma.xcodeproj \
+            -scheme LumaMac \
+            -configuration Release \
+            -derivedDataPath build/DerivedData \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY=""
+      - name: Prepare macOS Artifact
+        run: mkdir -p upload && cp -rv build/DerivedData/Build/Products/Release/Luma.app upload/
+      - name: Upload macOS Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Luma
+          path: upload
